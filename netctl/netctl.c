@@ -112,13 +112,14 @@ int			 ret = 0;
 
 	(void)argv;
 
-	if (argc) {
-		fprintf(stderr, "usage: %s list-interfaces\n",
-			getprogname());
-		return 1;
-	}
+	xo_open_container("interface-list");
 
-	xo_open_container("interfaces");
+	if (argc) {
+		xo_emit("{E/usage: %s list-interfaces}\n",
+			getprogname());
+		ret = 1;
+		goto done;
+	}
 
 	resp = send_simple_command(server, CTL_CMD_LIST_INTERFACES);
 	if (!resp) {
@@ -152,7 +153,7 @@ int			 ret = 0;
 	}
 
 done:
-	xo_close_container("interfaces");
+	xo_close_container("interface-list");
 	xo_finish();
 	nvlist_destroy(resp);
 	return ret;
