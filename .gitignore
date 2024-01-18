@@ -1,0 +1,6 @@
+*.swp*
+*.o
+*.core
+.depend
+netd/netd
+netctl/netctl
