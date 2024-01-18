@@ -34,6 +34,7 @@ Start `netd`.
 
 ## Example
 
+```
 # netctl list-interfaces
 NAME
 wg0
@@ -43,3 +44,4 @@ alc0
 lo0
 ix1
 ix0
+```
