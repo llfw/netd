@@ -2,8 +2,11 @@
 # This source code is released into the public domain.
 #
 
-default: build
-build: ${TARGET}
+BINDIR	?= bin
+
+default: all
+
+all: ${TARGET}
 
 OBJS=	${SRCS:.c=.o}
 
@@ -18,6 +21,10 @@ depend:
 
 clean:
 	rm -f ${TARGET} ${OBJS}
+
+install: ${TARGET}
+	install -d "${PREFIX}/${BINDIR}"
+	install -C ${TARGET} "${PREFIX}/${BINDIR}"
 
 .include "${.PARSEDIR}/vars.mk"
 

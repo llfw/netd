@@ -3,6 +3,7 @@
 #
 
 TARGET	= netd
+BINDIR	= sbin
 SRCS	= netd.c kq.c netlink.c state.c log.c ctl.c
 LIBS	= -lnv
 
