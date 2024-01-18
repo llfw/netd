@@ -45,3 +45,15 @@ lo0
 ix1
 ix0
 ```
+
+## Programmatic output
+
+`netctl` supports parseable output in various formats using the `libxo(3)`
+library:
+
+```
+# netctl --libxo=json list-interfaces
+{"interface-list": {"interface": [{"name":"wg0"}, {"name":"tap0"}, {"name":"bridge0"}, {"name":"alc0"}, {"name":"lo0"}, {"name":"ix1"}, {"name":"ix0"}]}}
+# netctl --libxo=xml list-interfaces
+<interface-list><interface><name>wg0</name></interface><interface><name>tap0</name></interface><interface><name>bridge0</name></interface><interface><name>alc0</name></interface><interface><name>lo0</name></interface><interface><name>ix1</name></interface><interface><name>ix0</name></interface></interface-list>
+```
