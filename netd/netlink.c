@@ -12,6 +12,7 @@
 #include	<stdlib.h>
 #include	<string.h>
 #include	<stdio.h>
+#include	<unistd.h>
 
 #include	"netlink.h"
 #include	"netd.h"
@@ -33,14 +34,49 @@ static void (*handlers[])(struct nlmsghdr *) = {
 	[RTM_DELADDR] = hdl_rtm_deladdr,
 };
 
+static int	nl_fetch_interfaces(void);
+static int	nl_fetch_addresses(void);
+
+nlsocket_t *
+nlsocket_create(int flags) {
+nlsocket_t	*ret = NULL;
+int		 err, optval, optlen;
+
+	if ((ret = calloc(1, sizeof(*ret))) == NULL)
+		goto err;
+
+	if ((ret->ns_fd = socket(AF_NETLINK, SOCK_RAW | flags,
+				 NETLINK_ROUTE)) == -1)
+		goto err;
+
+        optval = 1;
+        optlen = sizeof(optval);
+	if (setsockopt(ret->ns_fd, SOL_NETLINK, NETLINK_MSG_INFO, &optval,
+		       optlen) != 0)
+		goto err;
+
+	return ret;
+
+err:
+	err = errno;
+
+	if (ret && ret->ns_fd)
+		close(ret->ns_fd);
+
+	free(ret);
+	errno = err;
+	return NULL;
+}
+
+void
+nlsocket_close(nlsocket_t *nls) {
+	close(nls->ns_fd);
+	free(nls);
+}
+
 int
 nl_setup(struct kq *kq) {
 struct nlsocket	*nls;
-struct nlmsghdr	*rthdr;
-struct iovec	 iov;
-struct msghdr	 mhdr;
-size_t		 msglen;
-ssize_t		 n;
 int		 optval, optlen, err;
 int		 nl_groups[] = {
 	RTNLGRP_LINK,
@@ -52,23 +88,9 @@ int		 nl_groups[] = {
 	RTNLGRP_IPV6_ROUTE,
 };
 
-	if ((nls = calloc(1, sizeof(*nls))) == NULL) {
-		perror("calloc");
-		return -1;
-	}
-
-	if ((nls->ns_fd = socket(AF_NETLINK, 
-				 SOCK_RAW | SOCK_NONBLOCK | SOCK_CLOEXEC,
-				 NETLINK_ROUTE)) == -1) {
-		perror("socket(AF_NETLINK)");
-		return -1;
-	}
-
-        optval = 1;
-        optlen = sizeof(optval);
-	if (setsockopt(nls->ns_fd, SOL_NETLINK, NETLINK_MSG_INFO, &optval,
-		       optlen) != 0) {
-		perror("NETLINK_MSG_INFO");
+	if ((nls = nlsocket_create(SOCK_NONBLOCK | SOCK_CLOEXEC)) == NULL) {
+		nlog(NLOG_FATAL, "nl_setup: nlsocket_create: %s",
+		     strerror(errno));
 		return -1;
 	}
 
@@ -79,44 +101,162 @@ int		 nl_groups[] = {
 		if ((err = setsockopt(nls->ns_fd, SOL_NETLINK,
 				      NETLINK_ADD_MEMBERSHIP,
 				      &optval, optlen)) != 0) {
-			perror("NETLINK_ADD_MEMBERSHIP");
+			nlog(NLOG_FATAL,
+			     "nl_setup: NETLINK_ADD_MEMBERSHIP: %s",
+			     strerror(errno));
 			return -1;
 		}
         }
 
-	/*
-	 * ask the kernel to report all existing interfaces.  these arrive as
-	 * RTM_NEWLINK messages so we just handle them in the event loop.
-	 */
-	msglen = NLMSG_SPACE(sizeof(struct nlmsghdr));
-	if ((rthdr = malloc(msglen)) == NULL)
-		panic("out of memory");
-
-	memset(rthdr, 0, msglen);
-	rthdr->nlmsg_len = msglen;
-	rthdr->nlmsg_type = RTM_GETLINK;
-	rthdr->nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
-
-	iov.iov_base = rthdr;
-	iov.iov_len = msglen;
-
-	memset(&mhdr, 0, sizeof(mhdr));
-	mhdr.msg_iov = &iov;
-	mhdr.msg_iovlen = 1;
-
-	if ((n = sendmsg(nls->ns_fd, &mhdr, 0)) == -1) {
-		free(rthdr);
-		perror("RTM_GETLINK");
+	if (nl_fetch_interfaces() == -1) {
+		nlog(NLOG_FATAL, "nl_setup: nl_fetch_interfaces: %s",
+		     strerror(errno));
 		return -1;
 	}
 
-	free(rthdr);
+	if (nl_fetch_addresses() == -1) {
+		nlog(NLOG_FATAL, "nl_setup: nl_fetch_addresses: %s",
+		     strerror(errno));
+		return -1;
+	}
 
 	if (kq_register_read(kq, nls->ns_fd, donlread, nls) == -1) {
-		perror("kq_register_read");
+		nlog(NLOG_FATAL, "nl_setup: kq_register_read: %s",
+		     strerror(errno));
 		return -1;
 	}
-	
+
+	return 0;
+}
+
+int
+nlsocket_send(nlsocket_t *nls, struct nlmsghdr *nlmsg, size_t msglen) {
+struct iovec	iov;
+struct msghdr	msg;
+
+	nlog(NLOG_DEBUG, "nlsocket_send: send fd=%d", nls->ns_fd);
+
+	iov.iov_base = nlmsg;
+	iov.iov_len = msglen;
+
+	memset(&msg, 0, sizeof(msg));
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
+
+	if (sendmsg(nls->ns_fd, &msg, 0) == -1)
+		return -1;
+
+	return 0;
+}
+
+static struct nlmsghdr *
+nlsocket_getmsg(nlsocket_t *nls) {
+struct nlmsghdr *hdr = (struct nlmsghdr *)nls->ns_bufp;
+
+	if (!NLMSG_OK(hdr, (int)nls->ns_bufn))
+		panic("nlsocket_getmsg: data but no message");
+
+	hdr = (struct nlmsghdr *)nls->ns_bufp;
+	nls->ns_bufp += hdr->nlmsg_len;
+	nls->ns_bufn -= hdr->nlmsg_len;
+	return hdr;
+}
+
+struct nlmsghdr *
+nlsocket_recv(nlsocket_t *nls) {
+	if (!nls->ns_bufn) {
+	struct iovec	 iov;
+	struct msghdr	 msg;
+	ssize_t		 n;
+
+		iov.iov_base = nls->ns_buf;
+		iov.iov_len = sizeof(nls->ns_buf);
+
+		memset(&msg, 0, sizeof(msg));
+		msg.msg_iov = &iov;
+		msg.msg_iovlen = 1;
+
+		n = recvmsg(nls->ns_fd, &msg, 0);
+		if (n < 0)
+			return NULL;
+
+		nls->ns_bufp = nls->ns_buf;
+		nls->ns_bufn = n;
+	}
+
+	return nlsocket_getmsg(nls);
+}
+
+/*
+ * ask the kernel to report all existing network interfaces.
+ */
+static int
+nl_fetch_interfaces(void) {
+nlsocket_t	*nls;
+struct nlmsghdr	 hdr;
+struct nlmsghdr	*rhdr;
+
+	if ((nls = nlsocket_create(SOCK_CLOEXEC)) == NULL)
+		return -1;
+
+	memset(&hdr, 0, sizeof(hdr));
+	hdr.nlmsg_len = sizeof(hdr);
+	hdr.nlmsg_type = RTM_GETLINK;
+	hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
+
+	if (nlsocket_send(nls, &hdr, sizeof(hdr)) == -1)
+		return -1;
+
+	while ((rhdr = nlsocket_recv(nls)) != NULL) {
+		if (rhdr->nlmsg_type == NLMSG_DONE)
+			break;
+
+		assert(rhdr->nlmsg_type == RTM_NEWLINK);
+		nlog(NLOG_DEBUG, "nl_fetch_interfaces: recv");
+		nlog(NLOG_DEBUG, "nlhdr len   = %u", (unsigned int) rhdr->nlmsg_len);
+		nlog(NLOG_DEBUG, "nlhdr type  = %u", (unsigned int) rhdr->nlmsg_type);
+		nlog(NLOG_DEBUG, "nlhdr flags = %u", (unsigned int) rhdr->nlmsg_flags);
+		nlog(NLOG_DEBUG, "nlhdr seq   = %u", (unsigned int) rhdr->nlmsg_seq);
+		nlog(NLOG_DEBUG, "nlhdr pid   = %u", (unsigned int) rhdr->nlmsg_pid);
+		hdl_rtm_newlink(rhdr);
+	}
+
+	return 0;
+}
+
+/*
+ * ask the kernel to report all existing addresses.
+ */
+static int
+nl_fetch_addresses(void) {
+nlsocket_t	*nls;
+struct nlmsghdr	 hdr;
+struct nlmsghdr	*rhdr;
+
+	if ((nls = nlsocket_create(SOCK_CLOEXEC)) == NULL)
+		return -1;
+
+	memset(&hdr, 0, sizeof(hdr));
+	hdr.nlmsg_len = sizeof(hdr);
+	hdr.nlmsg_type = RTM_GETADDR;
+	hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
+
+	if (nlsocket_send(nls, &hdr, sizeof(hdr)) == -1)
+		return -1;
+
+	while ((rhdr = nlsocket_recv(nls)) != NULL) {
+		if (rhdr->nlmsg_type == NLMSG_DONE)
+			break;
+
+		assert(rhdr->nlmsg_type == RTM_NEWADDR);
+		nlog(NLOG_DEBUG, "nl_fetch_addresses: recv");
+		nlog(NLOG_DEBUG, "nlhdr len   = %u", (unsigned int) rhdr->nlmsg_len);
+		nlog(NLOG_DEBUG, "nlhdr type  = %u", (unsigned int) rhdr->nlmsg_type);
+		nlog(NLOG_DEBUG, "nlhdr flags = %u", (unsigned int) rhdr->nlmsg_flags);
+		nlog(NLOG_DEBUG, "nlhdr seq   = %u", (unsigned int) rhdr->nlmsg_seq);
+		nlog(NLOG_DEBUG, "nlhdr pid   = %u", (unsigned int) rhdr->nlmsg_pid);
+	}
+
 	return 0;
 }
 
@@ -172,43 +312,16 @@ donlmsg(struct nlmsghdr *hdr) {
 		handlers[hdr->nlmsg_type](hdr);
 }
 
-static int
-donlpkt(int fd) {
-//struct nlsocket		*nls = udata;
-static char		 buf[32768];
-struct msghdr		 msg;
-struct iovec		 iov;
-ssize_t			 n;
-struct nlmsghdr		 *nlhdr;
-//struct ifinfomsg	 ifinfo;
-
-	iov.iov_base = buf;
-	iov.iov_len = sizeof(buf);
-
-	memset(&msg, 0, sizeof(msg));
-	msg.msg_iov = &iov;
-	msg.msg_iovlen = 1;
-
-	if ((n = recvmsg(fd, &msg, 0)) == -1)
-		return -1;
-
-	for (nlhdr = (struct nlmsghdr *) buf; NLMSG_OK(nlhdr, n);
-			nlhdr = NLMSG_NEXT(nlhdr, n)) {
-		nlog(NLOG_DEBUG, "n = %u", (unsigned int) n);
-
-		donlmsg(nlhdr);
-	}
-
-	return 0;
-}
-
 static kq_disposition_t
 donlread(struct kq *kq, int fd, void *udata) {
-	(void)kq;
-	(void)udata;
+nlsocket_t	*nls = udata;
+struct nlmsghdr	*nlhdr;
 
-	while (donlpkt(fd) == 0)
-		;
+	(void)kq;
+	(void)fd;
+
+	while ((nlhdr = nlsocket_recv(nls)) != NULL)
+		donlmsg(nlhdr);
 
 	if (errno == EAGAIN)
 		return KQ_REARM;

@@ -10,12 +10,24 @@
  * and dispatching them to the appropriate place.
  */
 
+#include	<netlink/netlink.h>
+
 struct kq;
 
-struct nlsocket {
-	int	ns_fd;
-};
+#define	NLSOCKET_BUFSIZE	32768
 
-int	nl_setup(struct kq *);
+typedef struct nlsocket {
+	int	 ns_fd;
+	char	 ns_buf[NLSOCKET_BUFSIZE];
+	char	*ns_bufp;
+	size_t	 ns_bufn;
+} nlsocket_t;
+
+int		 nl_setup		(struct kq *);
+nlsocket_t 	*nlsocket_create	(int flags);
+int		 nlsocket_send		(nlsocket_t *, struct nlmsghdr *msg,
+					 size_t msglen);
+struct nlmsghdr	*nlsocket_recv		(nlsocket_t *);
+void		 nlsocket_close		(nlsocket_t *);
 
 #endif	/* !NETD_NETLINK_H_INCLUDED */
