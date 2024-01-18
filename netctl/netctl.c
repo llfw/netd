@@ -7,6 +7,8 @@
 #include	<sys/un.h>
 #include	<sys/nv.h>
 
+#include	<libxo/xo.h>
+
 #include	<assert.h>
 #include	<errno.h>
 #include	<stdio.h>
@@ -31,7 +33,7 @@ static nvlist_t	*send_simple_command(int server, char const *command);
 
 static void
 usage(void) {
-	fprintf(stderr, "usage: %s <command>\n", getprogname());
+	fprintf(stderr, "usage: %s [--libxo=...] <command>\n", getprogname());
 }
 
 int
@@ -39,6 +41,10 @@ main(int argc, char **argv) {
 int	server;
 
 	setprogname(argv[0]);
+
+	argc = xo_parse_args(argc, argv);
+	if (argc < 0)
+		return EXIT_FAILURE;
 
 	--argc;
 	++argv;
@@ -102,6 +108,7 @@ c_list_interfaces(int server, int argc, char **argv) {
 nvlist_t		*resp = NULL;
 nvlist_t const *const	*intfs = NULL;
 size_t			 nintfs = 0;
+int			 ret = 0;
 
 	(void)argv;
 
@@ -111,43 +118,44 @@ size_t			 nintfs = 0;
 		return 1;
 	}
 
+	xo_open_container("interfaces");
+
 	resp = send_simple_command(server, CTL_CMD_LIST_INTERFACES);
 	if (!resp) {
-		fprintf(stderr, "%s: failed to send command: %s\n",
+		xo_emit("{E:/%s: failed to send command: %s\n}",
 			getprogname(), strerror(errno));
-		return 1;
+		ret = 1;
+		goto done;
 	}
 
-	if (!nvlist_exists_nvlist_array(resp, CTL_PARM_INTERFACES)) {
-		fprintf(stderr, "%s: no interfaces configured\n",
-			getprogname());
-		nvlist_destroy(resp);
-		return 0;
-	}
+	if (!nvlist_exists_nvlist_array(resp, CTL_PARM_INTERFACES))
+		goto done;
 
 	intfs = nvlist_get_nvlist_array(resp, CTL_PARM_INTERFACES, &nintfs);
 
-	printf("NAME\n");
+	xo_emit("{T:NAME}\n");
 
 	for (size_t i = 0; i < nintfs; ++i) {
 	nvlist_t const	*intf = intfs[i];
+	char const	*ifname = NULL;
 
 		if (!nvlist_exists_string(intf, CTL_PARM_INTERFACE_NAME)) {
-			fprintf(stderr, "%s: invalid response\n",
-				getprogname());
-			goto err;
+			xo_emit("{E:/%s: invalid response}\n", getprogname());
+			ret = 1;
+			goto done;
 		}
 
-		printf("%s\n",
-		       nvlist_get_string(intf, CTL_PARM_INTERFACE_NAME));
+		ifname = nvlist_get_string(intf, CTL_PARM_INTERFACE_NAME);
+		xo_open_instance("interface");
+		xo_emit("{:name/%s}\n", ifname);
+		xo_close_instance("interface");
 	}
 
+done:
+	xo_close_container("interfaces");
+	xo_finish();
 	nvlist_destroy(resp);
-	return 0;
-
-err:
-	nvlist_destroy(resp);
-	return 1;
+	return ret;
 }
 
 static nvlist_t *

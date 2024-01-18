@@ -5,6 +5,6 @@
 TARGET	= netctl
 BINDIR	= sbin
 SRCS	= netctl.c
-LIBS	= -lnv
+LIBS	= -lnv -lxo
 
 .include "../mk/prog.mk"
