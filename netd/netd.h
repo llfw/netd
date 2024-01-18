@@ -11,7 +11,7 @@
 #define	ASIZE(a)	(sizeof(a) / sizeof(*(a)))
 
 /* log a message at the highest priority and immediately abort */
-[[noreturn]] void	vpanic(char const *str, va_list args);
-[[noreturn]] void	panic(char const *str, ...);
+_Noreturn void	vpanic(char const *str, va_list args);
+_Noreturn void	panic(char const *str, ...);
 
 #endif	/* !NETD_NETD_H */

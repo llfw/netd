@@ -97,7 +97,7 @@ newclient(struct kq *kq, int fd, void *udata) {
 	if (errno == EAGAIN)
 		return KQ_REARM;
 
-	panic("ctl newclient: acceptclient() failed: %s\n", strerror(errno));
+	panic("ctl newclient: acceptclient() failed: %s", strerror(errno));
 }
 
 static int
