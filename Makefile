@@ -12,3 +12,8 @@ ${_target}:
 	${MAKE} -C ${dir} ${_target}
 .endfor
 .endfor
+
+lint:
+	scan-build ${ANALYSER_FLAGS} --status-bugs ${MAKE} clean all
+
+.include "mk/vars.mk"
