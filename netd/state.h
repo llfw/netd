@@ -32,12 +32,13 @@
 #include	<netinet/if_ether.h>
 
 #include	"db.h"
+#include	"kq.h"
 
 /*
  * manage running system state (mainly interfaces).
  */
 
-int	state_init(void);
+int	state_init(kq_t *);
 
 typedef struct network {
 	SLIST_ENTRY(network)	 net_entry;
@@ -69,6 +70,12 @@ ifaddr_t	*ifaddr_new(int family, void *addr, int plen);
  * an interface.  this represents an interface which is active on the system
  * right now.
  */
+
+/* how often to calculate interface stats, in seconds */
+#define	INTF_STATE_INTERVAL	5
+/* how many previous periods to store */
+#define	INTF_STATE_HISTORY	6	/* 6 * 5 = 30 seconds */
+
 typedef struct interface {
 	SLIST_ENTRY(interface)	 if_entry;
 	struct uuid		 if_uuid;	/* uuid in persistent store */
@@ -77,6 +84,11 @@ typedef struct interface {
 	ifaddr_list_t		 if_addrs;
 	struct network		*if_network;	/* may be NULL */
 	pinterface_t		*if_pintf;	/* persistent config */
+	/* stats history */
+	uint64_t		 if_obytes[INTF_STATE_HISTORY];
+	uint64_t		 if_txrate; /* bps */
+	uint64_t		 if_ibytes[INTF_STATE_HISTORY];
+	uint64_t		 if_rxrate; /* bps */
 } interface_t;
 
 extern SLIST_HEAD(interface_head, interface) interfaces;

@@ -49,5 +49,7 @@
 /* INTF_LIST command - response */
 #define	CTL_PARM_INTERFACES		"INTFS"	/* nvlist array */
 #define	CTL_PARM_INTERFACE_NAME		"NAME"	/* string */
+#define	CTL_PARM_INTERFACE_RXRATE	"RX"	/* number */
+#define	CTL_PARM_INTERFACE_TXRATE	"TX"	/* number */
 
 #endif	/* !NETD_PROTOCOL_H_INCLUDED */

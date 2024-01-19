@@ -29,8 +29,10 @@
  */
 
 #include	<netlink/netlink.h>
+#include	<netlink/route/interface.h>
 
 #include	"msgbus.h"
+#include	"kq.h"
 
 struct kq;
 
@@ -44,7 +46,7 @@ typedef struct nlsocket {
 } nlsocket_t;
 
 /* initialise the netlink subsystem */
-int		 nl_setup		(struct kq *);
+int		 nl_setup		(kq_t *);
 
 /* create a new rtnetlink socket */
 nlsocket_t 	*nlsocket_create	(int flags);
@@ -66,8 +68,9 @@ void		 nlsocket_close		(nlsocket_t *);
 /* interface created */
 #define	MSG_NETLINK_NEWLINK	MSG_ID(MSG_C_NETLINK, 1)
 struct netlink_newlink_data {
-	unsigned	 nl_ifindex;
-	char const	*nl_ifname;
+	unsigned			 nl_ifindex;
+	char const			*nl_ifname;
+	struct rtnl_link_stats64	*nl_stats;
 };
 
 /* interface destroyed */

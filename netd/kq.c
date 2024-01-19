@@ -1,17 +1,17 @@
 /*
  * This is free and unencumbered software released into the public domain.
- * 
+ *
  * Anyone is free to copy, modify, publish, use, compile, sell, or distribute
  * this software, either in source code form or as a compiled binary, for any
  * purpose, commercial or non-commercial, and by any means.
- * 
+ *
  * In jurisdictions that recognize copyright laws, the author or authors of
  * this software dedicate any and all copyright interest in the software to the
  * public domain. We make this dedication for the benefit of the public at
  * large and to the detriment of our heirs and successors. We intend this
  * dedication to be an overt act of relinquishment in perpetuity of all present
  * and future rights to this software under copyright law.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
@@ -36,10 +36,10 @@
 
 time_t current_time;
 
-struct kq_fd {
-	kq_read_handler	 kf_readh;
+typedef struct kq_fd {
+	kqreadcb	 kf_readh;
 	void		*kf_udata;
-};
+} kq_fd_t;
 
 struct kq {
 	int		 kq_fd;
@@ -47,13 +47,13 @@ struct kq {
 	size_t		 kq_nfds;
 };
 
-static struct kq_fd	*kq_get_fd(struct kq *kq, int fd);
+static struct kq_fd	*kq_get_fd(kq_t *kq, int fd);
 
 static struct kq_fd *
-kq_get_fd(struct kq *kq, int fd) {
+kq_get_fd(kq_t *kq, int fd) {
 	if ((size_t)fd >= kq->kq_nfds) {
 		kq->kq_nfds = (size_t)fd + 1;
-		kq->kq_fdtable = 
+		kq->kq_fdtable =
 			realloc(kq->kq_fdtable,
 				sizeof(struct kq_fd) * kq->kq_nfds);
 		if (kq->kq_fdtable == NULL)
@@ -63,9 +63,9 @@ kq_get_fd(struct kq *kq, int fd) {
 	return &kq->kq_fdtable[fd];
 }
 
-struct kq *
-kq_create(void) {
-struct kq	*ret;
+kq_t *
+kqnew(void) {
+kq_t	*ret;
 
 	if ((ret = calloc(1, sizeof(*ret))) == NULL)
 		return NULL;
@@ -79,7 +79,7 @@ struct kq	*ret;
 }
 
 int
-kq_register_read(struct kq *kq, int fd, kq_read_handler readh, void *udata) {
+kqread(kq_t *kq, int fd, kqreadcb readh, void *udata) {
 struct kevent	 ev;
 struct kq_fd	*kfd;
 
@@ -101,21 +101,55 @@ struct kq_fd	*kfd;
 	return 0;
 }
 
+struct kq_timer {
+	kqtimercb	 kt_callback;
+	int		 kt_when;
+	unsigned	 kt_unit;
+	void		*kt_udata;
+};
+
+int
+kqtimer(kq_t *kq, int when, unsigned unit, kqtimercb handler, void *udata) {
+struct kevent	 ev;
+struct kq_timer	*timer;
+
+	if ((timer = calloc(1, sizeof(*timer))) == NULL)
+		return -1;
+
+	timer->kt_callback = handler;
+	timer->kt_when = when;
+	timer->kt_unit = unit;
+	timer->kt_udata = udata;
+
+	memset(&ev, 0, sizeof(ev));
+	ev.ident = (uintptr_t)handler;
+	ev.filter = EVFILT_TIMER;
+	ev.fflags = unit;
+	ev.data = when;
+	ev.flags = EV_ADD | EV_ENABLE | EV_ONESHOT;
+	ev.udata = timer;
+
+	if (kevent(kq->kq_fd, &ev, 1, NULL, 0, NULL) != 0)
+		return -1;
+
+	return 0;
+}
+
 static int
-kq_dispatch_event(struct kq *kq, struct kevent *ev) {
-	if ((ev->filter & EVFILT_READ) != 0) {
-	int		 fd = (int)(uintptr_t)ev->udata;
-	struct kq_fd	*kfd = kq_get_fd(kq, fd);
+kq_dispatch_event(kq_t *kq, struct kevent *ev) {
+	if (ev->filter == EVFILT_READ) {
+	int	 fd = (int)(uintptr_t)ev->udata;
+	kq_fd_t	*kfd = kq_get_fd(kq, fd);
 
 		assert(kfd);
 		assert(kfd->kf_readh);
 
 		switch (kfd->kf_readh(kq, (int)ev->ident, kfd->kf_udata)) {
 		case KQ_REARM:
-			if (kq_register_read(kq, (int)ev->ident, kfd->kf_readh,
-					     kfd->kf_udata) == -1) {
+			if (kqread(kq, (int)ev->ident, kfd->kf_readh,
+				   kfd->kf_udata) == -1) {
 				nlog(NLOG_ERROR, "kq_dispatch_event: "
-					"failed to rearm event");
+					"failed to rearm read");
 				return -1;
 			}
 			break;
@@ -127,15 +161,39 @@ kq_dispatch_event(struct kq *kq, struct kevent *ev) {
 			panic("kq_dispatch_event: unknown return from "
 				"kf_readh");
 		}
+	} else if (ev->filter == EVFILT_TIMER) {
+	struct kq_timer	*timer = ev->udata;
+
+		assert(timer->kt_callback);
+
+		switch (timer->kt_callback(kq, timer->kt_udata)) {
+		case KQ_REARM:
+			if (kqtimer(kq, timer->kt_when,
+				    timer->kt_unit,
+				    timer->kt_callback,
+				    timer->kt_udata) == -1) {
+				nlog(NLOG_ERROR, "kq_dispatch_event: "
+				     "failed to rearm timer");
+				return -1;
+			}
+			break;
+
+		case KQ_STOP:
+			break;
+
+		default:
+			panic("kq_dispatch_event: unknown return from "
+			      "timer callback");
+		}
 	} else {
-		nlog(NLOG_DEBUG, "kq_run: no known filters");
+		nlog(NLOG_DEBUG, "kq_dispatch_event: no known filters");
 	}
 
 	return 0;
 }
 
 int
-kq_run(struct kq *kq) {
+kqrun(kq_t *kq) {
 struct kevent	 ev;
 int		 n;
 
@@ -144,18 +202,18 @@ int		 n;
 	while ((n = kevent(kq->kq_fd, NULL, 0, &ev, 1, NULL)) != -1) {
 		time(&current_time);
 
-		nlog(NLOG_DEBUG, "kq_run: got event");
+		nlog(NLOG_DEBUG, "kqrun: got event");
 
 		if (n) {
 			if (kq_dispatch_event(kq, &ev) == -1) {
-				nlog(NLOG_FATAL, "kq_run: dispatch failed");
+				nlog(NLOG_FATAL, "kqrun: dispatch failed");
 				return -1;
 			}
 		}
 
-		nlog(NLOG_DEBUG, "kq_run: sleeping");
+		nlog(NLOG_DEBUG, "kqrun: sleeping");
 	}
 
-	nlog(NLOG_FATAL, "kqueue failed: %s", strerror(errno));
+	nlog(NLOG_FATAL, "kqrun: kqueue failed: %s", strerror(errno));
 	return -1;
 }

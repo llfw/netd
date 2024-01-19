@@ -21,10 +21,16 @@
  */
 
 #include	<sys/queue.h>
+#include	<sys/event.h>
+
+#include	<netlink/netlink.h>
+#include	<netlink/route/common.h>
+#include	<netlink/route/route.h>
 
 #include	<errno.h>
 #include	<string.h>
 #include	<stdlib.h>
+#include	<inttypes.h>
 
 #include	"state.h"
 #include	"log.h"
@@ -42,12 +48,22 @@ static void	hdl_dellink(msg_id_t, void *);
 static void	hdl_newaddr(msg_id_t, void *);
 static void	hdl_deladdr(msg_id_t, void *);
 
+/* stats update timer */
+static kqdisp	stats(kq_t *, void *);
+
 int
-state_init(void) {
+state_init(kq_t *kq) {
 	msgbus_sub(MSG_NETLINK_NEWLINK, hdl_newlink);
 	msgbus_sub(MSG_NETLINK_DELLINK, hdl_dellink);
 	msgbus_sub(MSG_NETLINK_NEWADDR, hdl_newaddr);
 	msgbus_sub(MSG_NETLINK_DELADDR, hdl_deladdr);
+
+	if ((kqtimer(kq, INTF_STATE_INTERVAL, NOTE_SECONDS,
+		     stats, NULL)) == -1) {
+		nlog(NLOG_FATAL, "state_init: kqtimer: %s", strerror(errno));
+		return -1;
+	}
+
 	return 0;
 }
 
@@ -128,6 +144,15 @@ struct interface		*intf;
 
 	intf->if_index = msg->nl_ifindex;
 	intf->if_name = strdup(msg->nl_ifname);
+
+	/*
+	 * Set all the stats history entries to the current value to avoid
+	 * calculating a huge statistic when the interface first appears.
+	 */
+	for (int i = 0; i < INTF_STATE_HISTORY; ++i) {
+		intf->if_obytes[i] = msg->nl_stats->tx_bytes;
+		intf->if_ibytes[i] = msg->nl_stats->rx_bytes;
+	}
 
 	nlog(NLOG_INFO, "%s<%d>: new interface",
 	     intf->if_name, intf->if_index);
@@ -235,4 +260,97 @@ interface_t			*intf;
 
 	nlog(NLOG_INFO, "%s<%d>: address removed",
 	     intf->if_name, intf->if_index);
+}
+
+/* calculate interface stats */
+
+static void
+ifdostats(interface_t *intf, struct rtnl_link_stats64 *stats) {
+uint64_t	i;
+int		n;
+
+	/* TODO: make this more general */
+
+	/* tx */
+	memmove(intf->if_obytes, intf->if_obytes + 1,
+		sizeof(*intf->if_obytes) * (INTF_STATE_HISTORY - 1));
+	intf->if_obytes[INTF_STATE_HISTORY - 1] = stats->tx_bytes;
+	for (n = 1, i = 0; n < INTF_STATE_HISTORY; ++n)
+		i += intf->if_obytes[n] - intf->if_obytes[n - 1];
+	intf->if_txrate = ((i * 8) / INTF_STATE_HISTORY) / INTF_STATE_INTERVAL;
+
+	/* rx */
+	memmove(intf->if_ibytes, intf->if_ibytes + 1,
+		sizeof(*intf->if_ibytes) * (INTF_STATE_HISTORY - 1));
+	intf->if_ibytes[INTF_STATE_HISTORY - 1] = stats->rx_bytes;
+	for (n = 1, i = 0; n < INTF_STATE_HISTORY; ++n)
+		i += intf->if_ibytes[n] - intf->if_ibytes[n - 1];
+	intf->if_rxrate = ((i * 8) / INTF_STATE_HISTORY) / INTF_STATE_INTERVAL;
+}
+
+static kqdisp
+stats(kq_t *kq, void *udata) {
+nlsocket_t		*nls = NULL;
+struct nlmsghdr		 hdr, *rhdr = NULL;
+
+	(void)kq;
+	(void)udata;
+
+	if ((nls = nlsocket_create(0)) == NULL) {
+		nlog(NLOG_ERROR, "stats: nlsocket_create: %s",
+		     strerror(errno));
+		goto done;
+	}
+
+	/* ask the kernel to send us interface stats */
+	memset(&hdr, 0, sizeof(hdr));
+	hdr.nlmsg_len = sizeof(hdr);
+	hdr.nlmsg_type = RTM_GETLINK;
+	hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
+
+	if (nlsocket_send(nls, &hdr, sizeof(hdr)) == -1) {
+		nlog(NLOG_ERROR, "stats: nlsocket_send: %s",
+		     strerror(errno));
+		goto done;
+	}
+
+	/* read the interface details */
+	while ((rhdr = nlsocket_recv(nls)) != NULL) {
+	struct ifinfomsg	*ifinfo = NULL;
+	struct rtattr		*attrmsg = NULL;
+	size_t			 attrlen;
+	interface_t		*intf = NULL;
+
+		if (rhdr->nlmsg_type == NLMSG_DONE)
+			break;
+
+		if (rhdr->nlmsg_type != RTM_NEWLINK)
+			continue;
+
+		ifinfo = NLMSG_DATA(rhdr);
+
+		intf = find_interface_byindex((unsigned)ifinfo->ifi_index);
+		if (intf == NULL) {
+			nlog(NLOG_ERROR, "stats: missing interface %d?",
+			     (int)ifinfo->ifi_index);
+			continue;
+		}
+
+		for (attrmsg = IFLA_RTA(ifinfo), attrlen = IFLA_PAYLOAD(rhdr);
+		     RTA_OK(attrmsg, (int) attrlen);
+		     attrmsg = RTA_NEXT(attrmsg, attrlen)) {
+
+			switch (attrmsg->rta_type) {
+			case IFLA_STATS64:
+				ifdostats(intf, RTA_DATA(attrmsg));
+				break;
+			}
+		}
+	}
+
+done:
+	if (nls)
+		nlsocket_close(nls);
+
+	return KQ_REARM;
 }

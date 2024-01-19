@@ -55,10 +55,10 @@ static chandler_t chandlers[] = {
 	{ CTL_CMD_LIST_INTERFACES, h_list_interfaces },
 };
 
-static kq_disposition_t	newclient(struct kq *, int fd, void *udata);
-static kq_disposition_t	readclient(struct kq *, int fd, void *udata);
-static int		acceptclient(struct kq *, int fd);
-static void		clientcmd(struct kq *, ctlclient_t *, nvlist_t *cmd);
+static kqdisp	newclient	(kq_t *, int fd, void *udata);
+static kqdisp	readclient	(kq_t *, int fd, void *udata);
+static int	acceptclient	(kq_t *, int fd);
+static void	clientcmd	(kq_t *, ctlclient_t *, nvlist_t *cmd);
 
 int
 ctl_setup(struct kq *kq) {
@@ -91,7 +91,7 @@ int			sock = -1;
 		goto err;
 	}
 
-	if (kq_register_read(kq, sock, newclient, NULL) == -1) {
+	if (kqread(kq, sock, newclient, NULL) == -1) {
 		nlog(NLOG_FATAL, "ctl_setup: kq_register_read: %s",
 		     strerror(errno));
 		goto err;
@@ -107,8 +107,8 @@ err:
 	return -1;
 }
 
-static kq_disposition_t
-newclient(struct kq *kq, int fd, void *udata) {
+static kqdisp
+newclient(kq_t *kq, int fd, void *udata) {
 	(void) udata;
 
 	while (acceptclient(kq, fd) != -1)
@@ -134,7 +134,7 @@ ctlclient_t	*client = NULL;
 		goto err;
 
 	client->cc_fd = cfd;
-	if (kq_register_read(kq, client->cc_fd, readclient, client) == -1)
+	if (kqread(kq, client->cc_fd, readclient, client) == -1)
 		goto err;
 
 	nlog(NLOG_DEBUG, "acceptclient: new client fd=%d", cfd);
@@ -151,8 +151,8 @@ err:
 /*
  * read a command from the given client and execute it.
  */
-static kq_disposition_t
-readclient(struct kq *kq, int fd, void *udata) {
+static kqdisp
+readclient(kq_t *kq, int fd, void *udata) {
 ctlclient_t	*client = udata;
 int		 i;
 ssize_t		 n;
@@ -214,7 +214,7 @@ err:
  * handle a command from a client and reply to it.
  */
 static void
-clientcmd(struct kq *kq, ctlclient_t *client, nvlist_t *cmd)
+clientcmd(kq_t *kq, ctlclient_t *client, nvlist_t *cmd)
 {
 char const	*cmdname;
 
@@ -240,7 +240,7 @@ char const	*cmdname;
 }
 
 static void
-send_response(struct kq *kq, ctlclient_t *client, nvlist_t *resp) {
+send_response(kq_t *kq, ctlclient_t *client, nvlist_t *resp) {
 char		*rbuf = NULL;
 size_t		 rsz = 0;
 struct msghdr	 mhdr;
@@ -278,7 +278,7 @@ int		 i;
 }
 
 static void
-h_list_interfaces(struct kq *kq, ctlclient_t *client, nvlist_t *cmd) {
+h_list_interfaces(kq_t *kq, ctlclient_t *client, nvlist_t *cmd) {
 size_t		  nintfs = 0, n = 0;
 interface_t	 *intf = NULL;
 nvlist_t const	**nvintfs = NULL;
@@ -308,6 +308,11 @@ int		  i;
 
 			nvlist_add_string(nvl, CTL_PARM_INTERFACE_NAME,
 					  intf->if_name);
+
+			nvlist_add_number(nvl, CTL_PARM_INTERFACE_RXRATE,
+					  intf->if_rxrate);
+			nvlist_add_number(nvl, CTL_PARM_INTERFACE_TXRATE,
+					  intf->if_txrate);
 
 			if ((i = nvlist_error(nvl)) != 0) {
 				nlog(NLOG_DEBUG, "h_list_interfaces: nvl: ",

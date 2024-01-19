@@ -42,7 +42,7 @@
 #include	"state.h"
 #include	"log.h"
 
-static kq_disposition_t	donlread(struct kq *, int fd, void *udata);
+static kqdisp	donlread(kq_t *, int fd, void *udata);
 
 static void	hdl_rtm_newlink(struct nlmsghdr *);
 static void	hdl_rtm_dellink(struct nlmsghdr *);
@@ -141,7 +141,7 @@ int		 nl_groups[] = {
 		goto err;
 	}
 
-	if (kq_register_read(kq, nls->ns_fd, donlread, nls) == -1) {
+	if (kqread(kq, nls->ns_fd, donlread, nls) == -1) {
 		nlog(NLOG_FATAL, "nl_setup: kq_register_read: %s",
 		     strerror(errno));
 		goto err;
@@ -298,19 +298,34 @@ done:
 static void
 hdl_rtm_newlink(struct nlmsghdr *nlmsg) {
 struct ifinfomsg		*ifinfo = NLMSG_DATA(nlmsg);
-char				 ifname[IFNAMSIZ + 1];
+struct rtattr			*attrmsg = NULL;
+size_t				 attrlen;
 struct netlink_newlink_data	 msg;
 
 	nlog(NLOG_DEBUG, "RTM_NEWLINK");
 
-	if (if_indextoname((unsigned)ifinfo->ifi_index, ifname) == NULL) {
-		nlog(NLOG_DEBUG, "RTM_NEWLINK: couldn't get name for "
-		     "ifindex %d", (int) ifinfo->ifi_index);
+	for (attrmsg = IFLA_RTA(ifinfo), attrlen = IFLA_PAYLOAD(nlmsg);
+	     RTA_OK(attrmsg, (int) attrlen);
+	     attrmsg = RTA_NEXT(attrmsg, attrlen)) {
+
+		nlog(NLOG_DEBUG, "got attr: %d", (int) attrmsg->rta_type);
+		switch (attrmsg->rta_type) {
+		case IFLA_IFNAME:
+			msg.nl_ifname = RTA_DATA(attrmsg);
+			break;
+
+		case IFLA_STATS64:
+			msg.nl_stats = RTA_DATA(attrmsg);
+			break;
+		}
+	}
+
+	if (msg.nl_ifname == NULL) {
+		nlog(NLOG_ERROR, "RTM_NEWLINK: no interface name?");
 		return;
 	}
 
 	msg.nl_ifindex = (unsigned)ifinfo->ifi_index;
-	msg.nl_ifname = ifname;
 	msgbus_post(MSG_NETLINK_NEWLINK, &msg);
 }
 
@@ -401,8 +416,8 @@ donlmsg(struct nlmsghdr *hdr) {
 		handlers[hdr->nlmsg_type](hdr);
 }
 
-static kq_disposition_t
-donlread(struct kq *kq, int fd, void *udata) {
+static kqdisp
+donlread(kq_t *kq, int fd, void *udata) {
 nlsocket_t	*nls = udata;
 struct nlmsghdr	*nlhdr;
 

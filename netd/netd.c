@@ -55,7 +55,7 @@ va_list	ap;
 
 int
 main(int argc, char **argv) {
-struct kq	*kq;
+kq_t	*kq;
 
 	time(&current_time);
 
@@ -66,8 +66,8 @@ struct kq	*kq;
 
 	nlog(NLOG_INFO, "starting");
 
-	if ((kq = kq_create()) == NULL) {
-		nlog(NLOG_FATAL, "kq_create: %s", strerror(errno));
+	if ((kq = kqnew()) == NULL) {
+		nlog(NLOG_FATAL, "kqnew: %s", strerror(errno));
 		return 1;
 	}
 
@@ -80,7 +80,7 @@ struct kq	*kq;
 	 * state has to be initialised before netlink so it can receive
 	 * netlink's boot-time newlink/newaddr messages.
 	 */
-	if (state_init() == -1) {
+	if (state_init(kq) == -1) {
 		nlog(NLOG_FATAL, "state init failed");
 		return 1;
 	}
@@ -95,8 +95,8 @@ struct kq	*kq;
 		return 1;
 	}
 
-	if (kq_run(kq) == -1) {
-		nlog(NLOG_FATAL, "kq_run: %s", strerror(errno));
+	if (kqrun(kq) == -1) {
+		nlog(NLOG_FATAL, "kqrun: %s", strerror(errno));
 		return 1;
 	}
 

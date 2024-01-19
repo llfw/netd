@@ -33,6 +33,7 @@
 #include	<stdlib.h>
 #include	<string.h>
 #include	<unistd.h>
+#include	<inttypes.h>
 
 #include	"protocol.h"
 
@@ -152,21 +153,27 @@ int			 ret = 0;
 
 	intfs = nvlist_get_nvlist_array(resp, CTL_PARM_INTERFACES, &nintfs);
 
-	xo_emit("{T:NAME}\n");
+	xo_emit("{T:NAME/%-16s}{T:TX/%8s}{T:RX/%8s}\n");
 
 	for (size_t i = 0; i < nintfs; ++i) {
 	nvlist_t const	*intf = intfs[i];
-	char const	*ifname = NULL;
 
-		if (!nvlist_exists_string(intf, CTL_PARM_INTERFACE_NAME)) {
+		if (!nvlist_exists_string(intf, CTL_PARM_INTERFACE_NAME) ||
+		    !nvlist_exists_number(intf, CTL_PARM_INTERFACE_TXRATE) ||
+		    !nvlist_exists_number(intf, CTL_PARM_INTERFACE_RXRATE)) {
 			xo_emit("{E:/%s: invalid response}\n", getprogname());
 			ret = 1;
 			goto done;
 		}
 
-		ifname = nvlist_get_string(intf, CTL_PARM_INTERFACE_NAME);
 		xo_open_instance("interface");
-		xo_emit("{:name/%s}\n", ifname);
+		xo_emit("{V:name/%-16s}"
+			"{[:8}{Vhn,hn-decimal,hn-1000:txrate/%ju}b/s{]:}"
+			"{[:8}{Vhn,hn-decimal,hn-1000:rxrate/%ju}b/s{]:}"
+			"\n",
+			nvlist_get_string(intf, CTL_PARM_INTERFACE_NAME),
+			nvlist_get_number(intf, CTL_PARM_INTERFACE_TXRATE),
+			nvlist_get_number(intf, CTL_PARM_INTERFACE_RXRATE));
 		xo_close_instance("interface");
 	}
 
