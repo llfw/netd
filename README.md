@@ -2,7 +2,8 @@
 
 netd is a replacement for the FreeBSD `ifconfig(8)` command and the
 `rc(8)`-based network configuration system.  It is inspired by (but different
-to) Solaris's `dladm(1m)`, macOS's `networksetup` and Linux's `NetworkManager`.
+to) Solaris's `dladm(1M)`, and provides similar functionality as macOS's
+`networksetup` and Linux's `NetworkManager`.
 
 netd's aims are:
 
