@@ -103,3 +103,51 @@ void
 interface_destroyed(struct interface *iface) {
 	SLIST_REMOVE(&interfaces, iface, interface, if_entry);
 }
+
+ifaddr_t *
+ifaddr_new(int family, void *addr, int plen) {
+ifaddr_t	*ret = NULL;
+
+	if ((ret = calloc(1, sizeof(*ret))) == NULL)
+		return NULL;
+
+	if (plen < 0)
+		return NULL;
+
+	switch (family) {
+	case AF_INET:
+		if (plen > 32)
+			return NULL;
+
+		ret->ifa_family = AF_INET;
+		memcpy(&ret->ifa_addr4, addr, sizeof(struct in_addr));
+		ret->ifa_plen = plen;
+		break;
+
+	case AF_INET6:
+		if (plen > 128)
+			return NULL;
+
+		ret->ifa_family = AF_INET6;
+		memcpy(&ret->ifa_addr6, addr, sizeof(struct in6_addr));
+		ret->ifa_plen = plen;
+		break;
+
+	case AF_LINK:
+		/* Ethernet addresses don't have a mask */
+		if (plen != 48)
+			return NULL;
+
+		ret->ifa_family = AF_LINK;
+		memcpy(&ret->ifa_ether, addr, sizeof(struct ether_addr));
+		ret->ifa_plen = plen;
+		break;
+	}
+
+	return ret;
+}
+
+void
+interface_address_added(interface_t *intf, ifaddr_t *addr) {
+	SLIST_INSERT_HEAD(&intf->if_addrs, addr, ifa_entry);
+}

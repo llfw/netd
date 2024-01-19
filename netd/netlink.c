@@ -8,6 +8,10 @@
 #include	<netlink/netlink.h>
 #include	<netlink/netlink_route.h>
 
+#include	<netinet/in.h>
+#include	<arpa/inet.h>
+
+#include	<assert.h>
 #include	<errno.h>
 #include	<stdlib.h>
 #include	<string.h>
@@ -76,8 +80,7 @@ nlsocket_close(nlsocket_t *nls) {
 
 int
 nl_setup(struct kq *kq) {
-struct nlsocket	*nls;
-int		 optval, optlen, err;
+struct nlsocket	*nls = NULL;
 int		 nl_groups[] = {
 	RTNLGRP_LINK,
 	RTNLGRP_NEIGH,
@@ -91,12 +94,11 @@ int		 nl_groups[] = {
 	if ((nls = nlsocket_create(SOCK_NONBLOCK | SOCK_CLOEXEC)) == NULL) {
 		nlog(NLOG_FATAL, "nl_setup: nlsocket_create: %s",
 		     strerror(errno));
-		return -1;
+		goto err;
 	}
 
-        for (unsigned i = 0; i < ASIZE(nl_groups); i++) {
-		optval = nl_groups[i];
-		optlen = sizeof(optval);
+        for (unsigned i = 0; i < sizeof(nl_groups) / sizeof(*nl_groups); i++) {
+	int	err, optval = nl_groups[i], optlen = sizeof(optval);
 
 		if ((err = setsockopt(nls->ns_fd, SOL_NETLINK,
 				      NETLINK_ADD_MEMBERSHIP,
@@ -104,29 +106,35 @@ int		 nl_groups[] = {
 			nlog(NLOG_FATAL,
 			     "nl_setup: NETLINK_ADD_MEMBERSHIP: %s",
 			     strerror(errno));
-			return -1;
+			goto err;
 		}
         }
 
 	if (nl_fetch_interfaces() == -1) {
 		nlog(NLOG_FATAL, "nl_setup: nl_fetch_interfaces: %s",
 		     strerror(errno));
-		return -1;
+		goto err;
 	}
 
 	if (nl_fetch_addresses() == -1) {
 		nlog(NLOG_FATAL, "nl_setup: nl_fetch_addresses: %s",
 		     strerror(errno));
-		return -1;
+		goto err;
 	}
 
 	if (kq_register_read(kq, nls->ns_fd, donlread, nls) == -1) {
 		nlog(NLOG_FATAL, "nl_setup: kq_register_read: %s",
 		     strerror(errno));
-		return -1;
+		goto err;
 	}
 
 	return 0;
+
+err:
+	if (nls)
+		nlsocket_close(nls);
+	
+	return -1;
 }
 
 int
@@ -255,6 +263,7 @@ struct nlmsghdr	*rhdr;
 		nlog(NLOG_DEBUG, "nlhdr flags = %u", (unsigned int) rhdr->nlmsg_flags);
 		nlog(NLOG_DEBUG, "nlhdr seq   = %u", (unsigned int) rhdr->nlmsg_seq);
 		nlog(NLOG_DEBUG, "nlhdr pid   = %u", (unsigned int) rhdr->nlmsg_pid);
+		hdl_rtm_newaddr(rhdr);
 	}
 
 	return 0;
@@ -289,8 +298,55 @@ struct interface	*intf;
 
 static void
 hdl_rtm_newaddr(struct nlmsghdr *nlmsg) {
-	(void)nlmsg;
-	nlog(NLOG_DEBUG, "address created");
+struct ifaddrmsg	*ifamsg;
+struct rtattr		*attrmsg;
+interface_t		*intf;
+int			 attrlen;
+
+	nlog(NLOG_DEBUG, "RTM_NEWADDR");
+
+        ifamsg = NLMSG_DATA(nlmsg);
+        attrmsg = IFA_RTA(ifamsg);
+        attrlen = IFA_PAYLOAD(nlmsg);
+
+	if ((intf = find_interface_byindex(ifamsg->ifa_index)) == NULL) {
+		nlog(NLOG_WARNING,
+		     "RTM_NEWADDR received for unknown ifindex %d",
+		     ifamsg->ifa_index);
+		return;
+	}
+
+        while (RTA_OK(attrmsg, attrlen)) {
+	ifaddr_t	*newaddr;
+		if (attrmsg->rta_type == IFA_ADDRESS) {
+			switch (ifamsg->ifa_family) {
+			case AF_INET:
+				newaddr = ifaddr_new(AF_INET,
+						     RTA_DATA(attrmsg),
+						     ifamsg->ifa_prefixlen);
+				break;
+
+			case AF_INET6:
+				newaddr = ifaddr_new(AF_INET6,
+						     RTA_DATA(attrmsg),
+						     ifamsg->ifa_prefixlen);
+				break;
+
+			default:
+				nlog(NLOG_WARNING,
+				     "RTM_NEWADDR: unsupported address "
+				     "family %d", ifamsg->ifa_family);
+				return;
+			}
+
+			if (newaddr == NULL)
+				panic("RTM_NEWADDR: can't create address");
+
+			interface_address_added(intf, newaddr);
+		}
+
+		attrmsg = RTA_NEXT(attrmsg, attrlen);
+        }
 }
 
 static void

@@ -95,8 +95,8 @@ kq_dispatch_event(struct kq *kq, struct kevent *ev) {
 		switch (kfd->kf_readh(kq, ev->ident, kfd->kf_udata)) {
 		case KQ_REARM:
 			if (kq_register_read(kq, ev->ident, kfd->kf_readh,
-					     kfd) == -1) {
-				nlog(NLOG_FATAL, "kq_dispatch_event: "
+					     kfd->kf_udata) == -1) {
+				nlog(NLOG_ERROR, "kq_dispatch_event: "
 					"failed to rearm event");
 				return -1;
 			}
