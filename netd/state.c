@@ -108,16 +108,16 @@ ifaddr_t *
 ifaddr_new(int family, void *addr, int plen) {
 ifaddr_t	*ret = NULL;
 
-	if ((ret = calloc(1, sizeof(*ret))) == NULL)
-		return NULL;
-
 	if (plen < 0)
-		return NULL;
+		goto err;
+
+	if ((ret = calloc(1, sizeof(*ret))) == NULL)
+		goto err;
 
 	switch (family) {
 	case AF_INET:
 		if (plen > 32)
-			return NULL;
+			goto err;
 
 		ret->ifa_family = AF_INET;
 		memcpy(&ret->ifa_addr4, addr, sizeof(struct in_addr));
@@ -126,7 +126,7 @@ ifaddr_t	*ret = NULL;
 
 	case AF_INET6:
 		if (plen > 128)
-			return NULL;
+			goto err;
 
 		ret->ifa_family = AF_INET6;
 		memcpy(&ret->ifa_addr6, addr, sizeof(struct in6_addr));
@@ -136,7 +136,7 @@ ifaddr_t	*ret = NULL;
 	case AF_LINK:
 		/* Ethernet addresses don't have a mask */
 		if (plen != 48)
-			return NULL;
+			goto err;
 
 		ret->ifa_family = AF_LINK;
 		memcpy(&ret->ifa_ether, addr, sizeof(struct ether_addr));
@@ -145,6 +145,12 @@ ifaddr_t	*ret = NULL;
 	}
 
 	return ret;
+
+err:
+	if (ret)
+		free(ret);
+
+	return NULL;
 }
 
 void
