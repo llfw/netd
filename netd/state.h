@@ -8,13 +8,18 @@
 #include	<sys/types.h>
 #include	<sys/socket.h>
 #include	<sys/queue.h>
+#include	<sys/uuid.h>
 
 #include	<netinet/in.h>
 #include	<netinet/if_ether.h>
 
+#include	"db.h"
+
 /*
  * manage running system state (mainly interfaces).
  */
+
+int	state_init(void);
 
 typedef struct network {
 	SLIST_ENTRY(network)	 net_entry;
@@ -26,6 +31,7 @@ extern SLIST_HEAD(network_head, network) networks;
 network_t	*find_network(char const *name);
 network_t	*create_network(char const *name);
 
+/* an address assigned to an interface */
 typedef struct ifaddr {
 	SLIST_ENTRY(ifaddr)	ifa_entry;
 	int			ifa_family;
@@ -41,12 +47,18 @@ typedef SLIST_HEAD(ifaddr_list, ifaddr) ifaddr_list_t;
 
 ifaddr_t	*ifaddr_new(int family, void *addr, int plen);
 
+/*
+ * an interface.  this represents an interface which is active on the system
+ * right now.
+ */
 typedef struct interface {
 	SLIST_ENTRY(interface)	 if_entry;
+	struct uuid		 if_uuid;	/* uuid in persistent store */
 	char const		*if_name;
 	unsigned int		 if_index;
 	ifaddr_list_t		 if_addrs;
-	struct network		*if_network;
+	struct network		*if_network;	/* may be NULL */
+	pinterface_t		*if_pintf;	/* persistent config */
 } interface_t;
 
 extern SLIST_HEAD(interface_head, interface) interfaces;

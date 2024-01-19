@@ -19,10 +19,17 @@
  */
 #define CTL_MAX_MSG_SIZE	4096
 
-#define	CTL_CMD_NAME		"CMD_NAME"
-#define	CTL_CMD_LIST_INTERFACES	"INTF_LIST"
+/*
+ * protocol constants for nvlist keys.
+ */
 
-#define	CTL_PARM_INTERFACES	"INTFS"
-#define	CTL_PARM_INTERFACE_NAME	"NAME"
+#define	CTL_CMD_NAME			"CMD_NAME"
+
+/* INTF_LIST command - request */
+#define	CTL_CMD_LIST_INTERFACES		"INTF_LIST"
+
+/* INTF_LIST command - response */
+#define	CTL_PARM_INTERFACES		"INTFS"	/* nvlist array */
+#define	CTL_PARM_INTERFACE_NAME		"NAME"	/* string */
 
 #endif	/* !NETD_PROTOCOL_H_INCLUDED */

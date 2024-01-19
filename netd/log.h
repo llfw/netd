@@ -24,9 +24,9 @@ void		nlog(loglevel_t, char const *message, ...);
 void		vnlog(loglevel_t, char const *message, va_list);
 
 /* get or set the log destination */
-#define	NLOG_SYSLOG	0x1
-#define	NLOG_STDERR	0x2
-#define NLOG_MASK	0x3
+#define	NLOG_SYSLOG	0x1u
+#define	NLOG_STDERR	0x2u
+#define NLOG_MASK	0x3u
 #define	NLOG_DEFAULT	NLOG_STDERR
 unsigned	nlog_getdest(void);
 void		nlog_setdest(unsigned);

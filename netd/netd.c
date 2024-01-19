@@ -17,6 +17,8 @@
 #include	"netlink.h"
 #include	"log.h"
 #include	"ctl.h"
+#include	"msgbus.h"
+#include	"state.h"
 
 void
 vpanic(char const *str, va_list args) {
@@ -48,6 +50,20 @@ struct kq	*kq;
 
 	if ((kq = kq_create()) == NULL) {
 		nlog(NLOG_FATAL, "kq_create: %s", strerror(errno));
+		return 1;
+	}
+
+	if (msgbus_init() == -1) {
+		nlog(NLOG_FATAL, "msgbus init failed");
+		return 1;
+	}
+
+	/*
+	 * state has to be initialised before netlink so it can receive
+	 * netlink's boot-time newlink/newaddr messages.
+	 */
+	if (state_init() == -1) {
+		nlog(NLOG_FATAL, "state init failed");
 		return 1;
 	}
 

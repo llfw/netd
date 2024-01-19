@@ -56,7 +56,7 @@ nlog_getdest(void) {
 
 void
 nlog_setdest(unsigned newdest) {
-	assert((newdest & ~NLOG_MASK) == 0);
+	assert((newdest & ~NLOG_MASK) == 0u);
 
 	if ((newdest & NLOG_SYSLOG) && !(logdest & NLOG_SYSLOG))
 		openlog("dlctld", LOG_CONS | LOG_NDELAY | LOG_PID, LOG_DAEMON);
@@ -75,6 +75,7 @@ va_list	args;
 
 	va_start(args, message);
 	vnlog(level, message, args);
+	va_end(args);
 }
 
 void

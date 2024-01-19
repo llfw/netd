@@ -10,10 +10,28 @@
 
 #include	"state.h"
 #include	"log.h"
+#include	"msgbus.h"
+#include	"netlink.h"
+#include	"netd.h"
 
 struct network_head networks = SLIST_HEAD_INITIALIZER(networks);
 
 struct interface_head interfaces = SLIST_HEAD_INITIALIZER(interfaces);
+
+/* netlink event handlers */
+static void	hdl_newlink(msg_id_t, void *);
+static void	hdl_dellink(msg_id_t, void *);
+static void	hdl_newaddr(msg_id_t, void *);
+static void	hdl_deladdr(msg_id_t, void *);
+
+int
+state_init(void) {
+	msgbus_sub(MSG_NETLINK_NEWLINK, hdl_newlink);
+	msgbus_sub(MSG_NETLINK_DELLINK, hdl_dellink);
+	msgbus_sub(MSG_NETLINK_NEWADDR, hdl_newaddr);
+	msgbus_sub(MSG_NETLINK_DELADDR, hdl_deladdr);
+	return 0;
+}
 
 struct network *
 find_network(char const *name) {
@@ -32,7 +50,7 @@ struct network *
 create_network(char const *name) {
 struct network	*net;
 
-	if ((net = find_network(name)) != NULL) {
+	if (find_network(name) != NULL) {
 		errno = EEXIST;
 		return NULL;
 	}
@@ -72,36 +90,47 @@ struct interface	*intf;
 	return NULL;
 }
 
-struct interface *
-interface_created(char const *name, unsigned int ifindex) {
-struct interface	*intf;
+void
+hdl_newlink(msg_id_t msgid, void *data) {
+struct netlink_newlink_data	*msg = data;
+struct interface		*intf;
 
+	(void)msgid;
+
+	/* check for duplicate interfaces */
 	SLIST_FOREACH(intf, &interfaces, if_entry) {
-		if (strcmp(intf->if_name, name) == 0 ||
-		    intf->if_index == ifindex) {
-			errno = EEXIST;
-			return NULL;
+		if (strcmp(intf->if_name, msg->nl_ifname) == 0 ||
+		    intf->if_index == msg->nl_ifindex) {
+			return;
 		}
 	}
 
-	if ((intf = calloc(1, sizeof(*intf))) == NULL) {
-		errno = ENOMEM;
-		return NULL;
-	}
+	if ((intf = calloc(1, sizeof(*intf))) == NULL)
+		panic("hdl_newlink: out of memory");
 
-	intf->if_name = strdup(name);
-	intf->if_index = ifindex;
+	intf->if_index = msg->nl_ifindex;
+	intf->if_name = strdup(msg->nl_ifname);
 
 	nlog(NLOG_INFO, "%s<%d>: new interface",
 	     intf->if_name, intf->if_index);
 
 	SLIST_INSERT_HEAD(&interfaces, intf, if_entry);
-	return intf;
 }
 
 void
-interface_destroyed(struct interface *iface) {
-	SLIST_REMOVE(&interfaces, iface, interface, if_entry);
+hdl_dellink(msg_id_t msgid, void *data) {
+struct netlink_dellink_data	*msg = data;
+interface_t			*intf;
+
+	(void)msgid;
+
+	if ((intf = find_interface_byindex(msg->dl_ifindex)) == NULL)
+		return;
+
+	nlog(NLOG_INFO, "%s<%d>: interface destroyed",
+	     intf->if_name, intf->if_index);
+
+	SLIST_REMOVE(&interfaces, intf, interface, if_entry);
 }
 
 ifaddr_t *
@@ -154,6 +183,38 @@ err:
 }
 
 void
-interface_address_added(interface_t *intf, ifaddr_t *addr) {
+hdl_newaddr(msg_id_t msgid, void *data) {
+struct netlink_newaddr_data	*msg = data;
+interface_t			*intf;
+ifaddr_t			*addr;
+
+	(void)msgid;
+
+	if ((intf = find_interface_byindex(msg->na_ifindex)) == NULL)
+		return;
+
+	addr = ifaddr_new(msg->na_family, msg->na_addr, msg->na_plen);
+	if (addr == NULL)
+		/* unsupported family, etc. */
+		return;
+
+	nlog(NLOG_INFO, "%s<%d>: address added",
+	     intf->if_name, intf->if_index);
+
 	SLIST_INSERT_HEAD(&intf->if_addrs, addr, ifa_entry);
+}
+
+void
+hdl_deladdr(msg_id_t msgid, void *data) {
+struct netlink_deladdr_data	*msg = data;
+interface_t			*intf;
+	/* TODO: implement */
+
+	(void)msgid;
+
+	if ((intf = find_interface_byindex(msg->da_ifindex)) == NULL)
+		return;
+
+	nlog(NLOG_INFO, "%s<%d>: address removed",
+	     intf->if_name, intf->if_index);
 }

@@ -22,7 +22,7 @@ int	netd_connect(void);
 
 int	c_list_interfaces(int, int, char **);
 
-struct netcmd {
+static struct netcmd {
 	char const	 *nc_name;
 	int		(*nc_handler)(int, int, char **);
 } netcmds[] = {
@@ -89,7 +89,7 @@ struct sockaddr_un	sun;
 	assert(sizeof(CTL_SOCKET_PATH) <= sizeof(sun.sun_path));
 	strcpy(sun.sun_path, CTL_SOCKET_PATH);
 
-	i = connect(sock, (struct sockaddr *)&sun, SUN_LEN(&sun));
+	i = connect(sock, (struct sockaddr *)&sun, (socklen_t)SUN_LEN(&sun));
 	if (i == -1) {
 		perror("connect");
 		goto err;
@@ -162,6 +162,7 @@ done:
 static nvlist_t *
 nv_xfer(int server, nvlist_t *cmd) {
 int		 err;
+ssize_t		 n;
 void		*cmdbuf = NULL;
 size_t		 cmdsize = 0;
 struct iovec	 iov;
@@ -184,8 +185,8 @@ nvlist_t	*resp = NULL;
 	mhdr.msg_iov = &iov;
 	mhdr.msg_iovlen = 1;
 
-	err = sendmsg(server, &mhdr, MSG_EOR);
-	if (err == -1)
+	n = sendmsg(server, &mhdr, MSG_EOR);
+	if (n == -1)
 		goto err;
 
 	iov.iov_base = respbuf;
@@ -195,11 +196,11 @@ nvlist_t	*resp = NULL;
 	mhdr.msg_iov = &iov;
 	mhdr.msg_iovlen = 1;
 
-	err = recvmsg(server, &mhdr, 0);
-	if (err == -1)
+	n = recvmsg(server, &mhdr, 0);
+	if (n == -1)
 		goto err;
 
-	if (err == 0) {
+	if (n == 0) {
 		fprintf(stderr, "%s: empty reply from server\n",
 			getprogname());
 		errno = EINVAL;
@@ -211,7 +212,7 @@ nvlist_t	*resp = NULL;
 		goto err;
 	}
 
-	resp = nvlist_unpack(respbuf, err, 0);
+	resp = nvlist_unpack(respbuf, n, 0);
 	if (!resp)
 		goto err;
 

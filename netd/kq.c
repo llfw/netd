@@ -34,12 +34,12 @@ static struct kq_fd	*kq_get_fd(struct kq *kq, int fd);
 static struct kq_fd *
 kq_get_fd(struct kq *kq, int fd) {
 	if ((size_t)fd >= kq->kq_nfds) {
-		if ((kq->kq_fdtable =
-			realloc(kq->kq_fdtable, 
-				sizeof(struct kq_fd) * (fd + 1))) == NULL)
+		kq->kq_nfds = (size_t)fd + 1;
+		kq->kq_fdtable = 
+			realloc(kq->kq_fdtable,
+				sizeof(struct kq_fd) * kq->kq_nfds);
+		if (kq->kq_fdtable == NULL)
 			panic("kq_get_fd: out of memory");
-
-		kq->kq_nfds = fd + 1;
 	}
 
 	return &kq->kq_fdtable[fd];
@@ -72,7 +72,7 @@ struct kq_fd	*kfd;
 	kfd->kf_udata = udata;
 
 	memset(&ev, 0, sizeof(ev));
-	ev.ident = fd;
+	ev.ident = (uintptr_t)fd;
 	ev.filter = EVFILT_READ;
 	ev.flags = EV_ADD | EV_ENABLE | EV_ONESHOT;
 	ev.udata = (void *)(uintptr_t)fd;
@@ -92,9 +92,9 @@ kq_dispatch_event(struct kq *kq, struct kevent *ev) {
 		assert(kfd);
 		assert(kfd->kf_readh);
 
-		switch (kfd->kf_readh(kq, ev->ident, kfd->kf_udata)) {
+		switch (kfd->kf_readh(kq, (int)ev->ident, kfd->kf_udata)) {
 		case KQ_REARM:
-			if (kq_register_read(kq, ev->ident, kfd->kf_readh,
+			if (kq_register_read(kq, (int)ev->ident, kfd->kf_readh,
 					     kfd->kf_udata) == -1) {
 				nlog(NLOG_ERROR, "kq_dispatch_event: "
 					"failed to rearm event");
@@ -128,9 +128,11 @@ int		 n;
 
 		nlog(NLOG_DEBUG, "kq_run: got event");
 
-		if (kq_dispatch_event(kq, &ev) == -1) {
-			nlog(NLOG_FATAL, "kq_run: dispatch failed");
-			return -1;
+		if (n) {
+			if (kq_dispatch_event(kq, &ev) == -1) {
+				nlog(NLOG_FATAL, "kq_run: dispatch failed");
+				return -1;
+			}
 		}
 
 		nlog(NLOG_DEBUG, "kq_run: sleeping");

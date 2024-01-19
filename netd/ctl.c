@@ -61,7 +61,9 @@ int			sock = -1;
 	assert(sizeof(CTL_SOCKET_PATH) <= sizeof(sun.sun_path));
 	strcpy(sun.sun_path, CTL_SOCKET_PATH);
 
-	if (bind(sock, (struct sockaddr *)&sun, SUN_LEN(&sun)) == -1) {
+	if (bind(sock,
+		 (struct sockaddr *)&sun,
+		 (socklen_t)SUN_LEN(&sun)) == -1) {
 		nlog(NLOG_FATAL, "ctl_setup: bind: %s", strerror(errno));
 		goto err;
 	}
@@ -134,7 +136,8 @@ err:
 static kq_disposition_t
 readclient(struct kq *kq, int fd, void *udata) {
 ctlclient_t	*client = udata;
-ssize_t		 i;
+int		 i;
+ssize_t		 n;
 struct msghdr	 mhdr;
 struct iovec	 iov;
 nvlist_t	*cmd = NULL;
@@ -151,20 +154,20 @@ nvlist_t	*cmd = NULL;
 	mhdr.msg_iov = &iov;
 	mhdr.msg_iovlen = 1;
 
-	i = recvmsg(client->cc_fd, &mhdr, 0);
-	if (i == -1) {
+	n = recvmsg(client->cc_fd, &mhdr, 0);
+	if (n == -1) {
 		nlog(NLOG_DEBUG, "readclient: recvmsg: %s", strerror(errno));
 		goto err;
 	}
 
 	if (!(mhdr.msg_flags & MSG_EOR)) {
-		nlog(NLOG_DEBUG, "readclient: msg too long (read %d)", i);
+		nlog(NLOG_DEBUG, "readclient: msg too long (read %d)", n);
 		goto err;
 	}
 
 	nlog(NLOG_DEBUG, "readclient: got msg");
 
-	cmd = nvlist_unpack(client->cc_buf, i, 0);
+	cmd = nvlist_unpack(client->cc_buf, n, 0);
 	if (cmd == NULL) {
 		nlog(NLOG_DEBUG, "readclient: nvlist_unpack: %s",
 		     strerror(errno));
@@ -285,8 +288,7 @@ int		  i;
 		SLIST_FOREACH(intf, &interfaces, if_entry) {
 		nvlist_t	*nvl = nvlist_create(0);
 
-			nvlist_add_string(nvl,
-					  CTL_PARM_INTERFACE_NAME,
+			nvlist_add_string(nvl, CTL_PARM_INTERFACE_NAME,
 					  intf->if_name);
 
 			if ((i = nvlist_error(nvl)) != 0) {
@@ -311,6 +313,9 @@ int		  i;
 	send_response(kq, client, resp);
 
 err:
+	if (nvintfs)
+		free(nvintfs);
+
 	if (resp)
 		nvlist_destroy(resp);
 }
