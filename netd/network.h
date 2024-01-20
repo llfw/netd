@@ -32,7 +32,16 @@ typedef struct network {
 
 extern network_t *nullable networks;
 
-network_t *nullable find_network(char const *nonnull name);
-network_t *nullable create_network(char const *nonnull name);
+/*
+ * create a new network and add it to the configuration store; returns NULL on
+ * error and errno is set.
+ */
+network_t *nullable netcreate(char const *nonnull name);
+
+/* retrieve an existing network; returns NULL if not found. */
+network_t *nullable netfind(char const *nonnull name);
+
+/* delete a network.  all configuration will be removed. */
+void netdelete(network_t *nonnull);
 
 #endif	/* !NETD_NETWORK_H_INCLUDED */

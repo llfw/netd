@@ -20,16 +20,18 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include	<assert.h>
 #include	<errno.h>
 #include	<stdlib.h>
 #include	<string.h>
 
+#include	"netd.h"
 #include	"network.h"
 
 network_t *networks = NULL;
 
 struct network *
-find_network(char const *name) {
+netfind(char const *name) {
 struct network	*network;
 
 	for (network = networks; network; network = network->net_next) {
@@ -42,10 +44,10 @@ struct network	*network;
 }
 
 struct network *
-create_network(char const *name) {
+netcreate(char const *name) {
 struct network	*net;
 
-	if (find_network(name) != NULL) {
+	if (netfind(name) != NULL) {
 		errno = EEXIST;
 		return NULL;
 	}
@@ -56,5 +58,25 @@ struct network	*net;
 	}
 
 	net->net_name = strdup(name);
+	net->net_next = networks;
+	networks = net;
+
 	return net;
+}
+
+void
+netdelete(network_t *nonnull net) {
+	assert(net);
+
+	for (network_t **node = &networks;
+	     *node;
+	     node = &(*node)->net_next) {
+		if (*node == net) {
+			*node = (*node)->net_next;
+			free(net);
+			return 0;
+		}
+	}
+
+	panic("netdelete: trying to remove non-existing network");
 }
