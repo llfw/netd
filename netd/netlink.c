@@ -302,6 +302,8 @@ struct rtattr			*attrmsg = NULL;
 size_t				 attrlen;
 struct netlink_newlink_data	 msg;
 
+	memset(&msg, 0, sizeof(msg));
+
 	for (attrmsg = IFLA_RTA(ifinfo), attrlen = IFLA_PAYLOAD(nlmsg);
 	     RTA_OK(attrmsg, (int) attrlen);
 	     attrmsg = RTA_NEXT(attrmsg, attrlen)) {
