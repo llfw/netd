@@ -24,6 +24,11 @@ WARNFLAGS	+= -Wno-padded -Wno-format-nonliteral -Wno-cast-align	\
 WARNFLAGS	+= -Werror
 .endif
 
+# Sanitizers.
+.if defined(SANITIZE)
+CFLAGS		+= -fsanitize=address
+.endif
+
 # flangs for clang-analyzer
 ANALYSER_FLAGS	= \
 	-enable-checker nullability.NullableDereferenced 	\
