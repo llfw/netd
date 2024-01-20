@@ -32,14 +32,13 @@
 #include	<stdlib.h>
 #include	<inttypes.h>
 
-#include	"state.h"
+#include	"iface.h"
 #include	"log.h"
 #include	"msgbus.h"
 #include	"netlink.h"
 #include	"netd.h"
 #include	"kq.h"
 
-network_t *networks = NULL;
 interface_t *interfaces = NULL;
 
 /* netlink event handlers */
@@ -52,7 +51,7 @@ static void	hdl_deladdr(msg_id_t, void *nonnull);
 static kqdisp	stats(void *);
 
 int
-state_init(void) {
+iface_init(void) {
 	msgbus_sub(MSG_NETLINK_NEWLINK, hdl_newlink);
 	msgbus_sub(MSG_NETLINK_DELLINK, hdl_dellink);
 	msgbus_sub(MSG_NETLINK_NEWADDR, hdl_newaddr);
@@ -64,37 +63,6 @@ state_init(void) {
 	}
 
 	return 0;
-}
-
-struct network *
-find_network(char const *name) {
-struct network	*network;
-
-	for (network = networks; network; network = network->net_next) {
-		if (strcmp(name, network->net_name) == 0)
-			return network;
-	}
-
-	errno = ESRCH;
-	return NULL;
-}
-
-struct network *
-create_network(char const *name) {
-struct network	*net;
-
-	if (find_network(name) != NULL) {
-		errno = EEXIST;
-		return NULL;
-	}
-
-	if ((net = calloc(1, sizeof(*net))) == NULL) {
-		errno = ENOMEM;
-		return NULL;
-	}
-
-	net->net_name = strdup(name);
-	return net;
 }
 
 struct interface *

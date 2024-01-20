@@ -41,7 +41,8 @@
 #include	"log.h"
 #include	"kq.h"
 #include	"protocol.h"
-#include	"state.h"
+#include	"iface.h"
+#include	"network.h"
 
 typedef struct ctlclient {
 	int	cc_fd;

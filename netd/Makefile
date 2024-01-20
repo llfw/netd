@@ -4,7 +4,7 @@
 
 TARGET	= netd
 BINDIR	= sbin
-SRCS	= netd.c kq.c netlink.c state.c log.c ctl.c msgbus.c
+SRCS	= netd.c kq.c netlink.c iface.c network.c log.c ctl.c msgbus.c
 LIBS	= -lnv
 
 .include "../mk/prog.mk"

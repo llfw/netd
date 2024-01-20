@@ -39,7 +39,6 @@
 #include	"netlink.h"
 #include	"netd.h"
 #include	"kq.h"
-#include	"state.h"
 #include	"log.h"
 
 static kqdisp	nldomsg(int fd, ssize_t nbytes, void *nullable udata);

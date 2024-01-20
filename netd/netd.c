@@ -36,7 +36,8 @@
 #include	"log.h"
 #include	"ctl.h"
 #include	"msgbus.h"
-#include	"state.h"
+#include	"iface.h"
+#include	"network.h"
 
 void
 vpanic(char const *str, va_list args) {
@@ -75,11 +76,11 @@ main(int argc, char **argv) {
 	}
 
 	/*
-	 * state has to be initialised before netlink so it can receive
+	 * iface has to be initialised before netlink so it can receive
 	 * netlink's boot-time newlink/newaddr messages.
 	 */
-	if (state_init() == -1) {
-		nlog(NLOG_FATAL, "state init failed: %s", strerror(errno));
+	if (iface_init() == -1) {
+		nlog(NLOG_FATAL, "iface init failed: %s", strerror(errno));
 		return 1;
 	}
 
