@@ -50,6 +50,10 @@
 #define	CP_IFACE		"INTFS"		/* nvlist array */
 #define	CP_IFACE_NAME		"NAME"		/* string */
 #define CP_IFACE_FLAGS		"FLAGS"		/* string array */
+#define CP_IFACE_ADMIN		"ADMIN_STATE"	/* number */
+#define CV_IFACE_ADMIN_UNKNOWN		0
+#define CV_IFACE_ADMIN_DOWN		1
+#define CV_IFACE_ADMIN_UP		2
 #define CP_IFACE_OPER		"OPER_STATE"	/* number */
 #define CV_IFACE_OPER_UNKNOWN		0
 #define CV_IFACE_OPER_NOT_PRESENT	1

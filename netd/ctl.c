@@ -28,6 +28,8 @@
 #include	<netlink/netlink.h>
 #include	<netlink/route/interface.h>
 
+#include	<net/if.h>
+
 #include	<assert.h>
 #include	<errno.h>
 #include	<stdlib.h>
@@ -276,7 +278,7 @@ int		  i;
 		/* add each interface to the response */
 		for (intf = interfaces; intf; intf = intf->if_next) {
 		nvlist_t	*nvl = nvlist_create(0);
-		uint64_t	 operstate;
+		uint64_t	 operstate, adminstate;
 
 			nvlist_add_string(nvl, CP_IFACE_NAME, intf->if_name);
 
@@ -315,6 +317,12 @@ int		  i;
 				break;
 			}
 			nvlist_add_number(nvl, CP_IFACE_OPER, operstate);
+
+			if (intf->if_flags & IFF_UP)
+				adminstate = CV_IFACE_ADMIN_UP;
+			else
+				adminstate = CV_IFACE_ADMIN_DOWN;
+			nvlist_add_number(nvl, CP_IFACE_ADMIN, adminstate);
 
 			if ((i = nvlist_error(nvl)) != 0) {
 				nlog(NLOG_DEBUG, "h_list_interfaces: nvl: %s",

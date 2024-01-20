@@ -203,19 +203,31 @@ int			 ret = 0;
 
 	intfs = nvlist_get_nvlist_array(resp, CP_IFACE, &nintfs);
 
-	xo_emit("{T:NAME/%-16s}{T:OPER/%-4s}{T:TX/%8s}{T:RX/%8s}\n");
+	xo_emit("{T:NAME/%-16s}{T:ADMIN/%-6s}{T:OPER/%-5s}"
+		"{T:TX/%8s}{T:RX/%8s}\n");
 
 	for (size_t i = 0; i < nintfs; ++i) {
 	nvlist_t const *nonnull	intf = intfs[i];
 	char const *nonnull	operstate = "UNK";
+	char const *nonnull	adminstate = "UNK";
 
 		if (!nvlist_exists_string(intf, CP_IFACE_NAME) ||
+		    !nvlist_exists_number(intf, CP_IFACE_ADMIN) ||
 		    !nvlist_exists_number(intf, CP_IFACE_OPER) ||
 		    !nvlist_exists_number(intf, CP_IFACE_TXRATE) ||
 		    !nvlist_exists_number(intf, CP_IFACE_RXRATE)) {
 			xo_emit("{E:/%s: invalid response}\n", getprogname());
 			ret = 1;
 			goto done;
+		}
+
+		switch (nvlist_get_number(intf, CP_IFACE_ADMIN)) {
+		case CV_IFACE_ADMIN_UP:
+			adminstate = "UP";
+			break;
+		case CV_IFACE_ADMIN_DOWN:
+			adminstate = "DOWN";
+			break;
 		}
 
 		switch (nvlist_get_number(intf, CP_IFACE_OPER)) {
@@ -241,11 +253,13 @@ int			 ret = 0;
 
 		xo_open_instance("interface");
 		xo_emit("{V:name/%-16s}"
-			"{V:oper-state/%-4s}"
+			"{V:admin-state/%-6s}"
+			"{V:oper-state/%-5s}"
 			"{[:8}{Vhn,hn-decimal,hn-1000:txrate/%ju}b/s{]:}"
 			"{[:8}{Vhn,hn-decimal,hn-1000:rxrate/%ju}b/s{]:}"
 			"\n",
 			nvlist_get_string(intf, CP_IFACE_NAME),
+			adminstate,
 			operstate,
 			nvlist_get_number(intf, CP_IFACE_TXRATE),
 			nvlist_get_number(intf, CP_IFACE_RXRATE));
