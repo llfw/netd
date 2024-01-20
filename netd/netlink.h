@@ -32,21 +32,18 @@
 #include	<netlink/route/interface.h>
 
 #include	"msgbus.h"
-#include	"kq.h"
-
-struct kq;
 
 #define	NLSOCKET_BUFSIZE	32768
 
 typedef struct nlsocket {
-	int	 ns_fd;
 	char	 ns_buf[NLSOCKET_BUFSIZE];
+	int	 ns_fd;
 	char	*ns_bufp;
 	size_t	 ns_bufn;
 } nlsocket_t;
 
 /* initialise the netlink subsystem */
-int		 nl_setup		(kq_t *);
+int		 nl_setup		(void);
 
 /* create a new rtnetlink socket */
 nlsocket_t 	*nlsocket_create	(int flags);

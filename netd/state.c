@@ -37,6 +37,7 @@
 #include	"msgbus.h"
 #include	"netlink.h"
 #include	"netd.h"
+#include	"kq.h"
 
 struct network_head networks = SLIST_HEAD_INITIALIZER(networks);
 
@@ -49,17 +50,16 @@ static void	hdl_newaddr(msg_id_t, void *);
 static void	hdl_deladdr(msg_id_t, void *);
 
 /* stats update timer */
-static kqdisp	stats(kq_t *, void *);
+static kqdisp	stats(void *);
 
 int
-state_init(kq_t *kq) {
+state_init(void) {
 	msgbus_sub(MSG_NETLINK_NEWLINK, hdl_newlink);
 	msgbus_sub(MSG_NETLINK_DELLINK, hdl_dellink);
 	msgbus_sub(MSG_NETLINK_NEWADDR, hdl_newaddr);
 	msgbus_sub(MSG_NETLINK_DELADDR, hdl_deladdr);
 
-	if ((kqtimer(kq, INTF_STATE_INTERVAL, NOTE_SECONDS,
-		     stats, NULL)) == -1) {
+	if ((kqtimer(INTF_STATE_INTERVAL, NOTE_SECONDS, stats, NULL)) == -1) {
 		nlog(NLOG_FATAL, "state_init: kqtimer: %s", strerror(errno));
 		return -1;
 	}
@@ -265,16 +265,20 @@ interface_t			*intf;
 /* calculate interface stats */
 
 static void
-ifdostats(interface_t *intf, struct rtnl_link_stats64 *stats) {
-uint64_t	i;
-int		n;
+ifdostats(interface_t *intf, struct rtnl_link_stats64 *ostats) {
+uint64_t			i;
+int				n;
+struct rtnl_link_stats64	stats;
 
 	/* TODO: make this more general */
+
+	/* copy out stats since netlink can misalign it */
+	memcpy(&stats, ostats, sizeof(stats));
 
 	/* tx */
 	memmove(intf->if_obytes, intf->if_obytes + 1,
 		sizeof(*intf->if_obytes) * (INTF_STATE_HISTORY - 1));
-	intf->if_obytes[INTF_STATE_HISTORY - 1] = stats->tx_bytes;
+	intf->if_obytes[INTF_STATE_HISTORY - 1] = stats.tx_bytes;
 	for (n = 1, i = 0; n < INTF_STATE_HISTORY; ++n)
 		i += intf->if_obytes[n] - intf->if_obytes[n - 1];
 	intf->if_txrate = ((i * 8) / INTF_STATE_HISTORY) / INTF_STATE_INTERVAL;
@@ -282,18 +286,17 @@ int		n;
 	/* rx */
 	memmove(intf->if_ibytes, intf->if_ibytes + 1,
 		sizeof(*intf->if_ibytes) * (INTF_STATE_HISTORY - 1));
-	intf->if_ibytes[INTF_STATE_HISTORY - 1] = stats->rx_bytes;
+	intf->if_ibytes[INTF_STATE_HISTORY - 1] = stats.rx_bytes;
 	for (n = 1, i = 0; n < INTF_STATE_HISTORY; ++n)
 		i += intf->if_ibytes[n] - intf->if_ibytes[n - 1];
 	intf->if_rxrate = ((i * 8) / INTF_STATE_HISTORY) / INTF_STATE_INTERVAL;
 }
 
 static kqdisp
-stats(kq_t *kq, void *udata) {
+stats(void *udata) {
 nlsocket_t		*nls = NULL;
 struct nlmsghdr		 hdr, *rhdr = NULL;
 
-	(void)kq;
 	(void)udata;
 
 	if ((nls = nlsocket_create(0)) == NULL) {

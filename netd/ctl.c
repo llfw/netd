@@ -45,31 +45,30 @@ typedef struct ctlclient {
 
 typedef struct chandler {
 	char const	*ch_cmd;
-	void		(*ch_handler)(struct kq *, ctlclient_t *client,
-				      nvlist_t *cmd);
+	void		(*ch_handler)(ctlclient_t *client, nvlist_t *cmd);
 } chandler_t;
 
-static void h_list_interfaces(struct kq *, ctlclient_t *, nvlist_t *);
+static void h_list_interfaces(ctlclient_t *, nvlist_t *);
 
 static chandler_t chandlers[] = {
 	{ CTL_CMD_LIST_INTERFACES, h_list_interfaces },
 };
 
-static kqdisp	newclient	(kq_t *, int fd, void *udata);
-static kqdisp	readclient	(kq_t *, int fd, void *udata);
-static int	acceptclient	(kq_t *, int fd);
-static void	clientcmd	(kq_t *, ctlclient_t *, nvlist_t *cmd);
+static kqdisp	newclient	(int fd, void *udata);
+static kqdisp	readclient	(int fd, void *udata);
+static int	acceptclient	(int fd);
+static void	clientcmd	(ctlclient_t *, nvlist_t *cmd);
 
 int
-ctl_setup(struct kq *kq) {
+ctl_setup(void) {
 struct sockaddr_un	sun;
 int			sock = -1;
 
 	(void) unlink(CTL_SOCKET_PATH);
 
-	if ((sock = socket(AF_UNIX,
-			   SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC,
-			   0)) == -1) {
+	if ((sock = kqsocket(AF_UNIX,
+			     SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC,
+			     0)) == -1) {
 		nlog(NLOG_FATAL, "ctl_setup: socket: %s", strerror(errno));
 		goto err;
 	}
@@ -91,7 +90,7 @@ int			sock = -1;
 		goto err;
 	}
 
-	if (kqread(kq, sock, newclient, NULL) == -1) {
+	if (kqread(sock, newclient, NULL) == -1) {
 		nlog(NLOG_FATAL, "ctl_setup: kq_register_read: %s",
 		     strerror(errno));
 		goto err;
@@ -102,16 +101,15 @@ int			sock = -1;
 
 err:
 	if (sock != -1)
-		close(sock);
-
+		kqclose(sock);
 	return -1;
 }
 
 static kqdisp
-newclient(kq_t *kq, int fd, void *udata) {
+newclient(int fd, void *udata) {
 	(void) udata;
 
-	while (acceptclient(kq, fd) != -1)
+	while (acceptclient(fd) != -1)
 		;
 
 	if (errno == EAGAIN)
@@ -121,30 +119,35 @@ newclient(kq_t *kq, int fd, void *udata) {
 }
 
 static int
-acceptclient(struct kq *kq, int fd) {
-int		 cfd = -1;
+acceptclient(int fd) {
 ctlclient_t	*client = NULL;
 
-	cfd = accept4(fd, NULL, NULL, SOCK_NONBLOCK | SOCK_CLOEXEC);
-	if (cfd == -1)
+	/* TODO: fix error handling once kqaccept() is available */
+	if ((client = calloc(1, sizeof(*client))) == NULL)
 		goto err;
 
-	client = calloc(1, sizeof(*client));
-	if (client == NULL)
+	client->cc_fd = accept4(fd, NULL, NULL, SOCK_NONBLOCK | SOCK_CLOEXEC);
+	if (client->cc_fd == -1)
 		goto err;
 
-	client->cc_fd = cfd;
-	if (kqread(kq, client->cc_fd, readclient, client) == -1)
+	if (kqopen(client->cc_fd) == -1)
 		goto err;
 
-	nlog(NLOG_DEBUG, "acceptclient: new client fd=%d", cfd);
+	if (kqread(client->cc_fd, readclient, client) == -1) {
+		kqclose(client->cc_fd);
+		free(client);
+		return -1;
+	}
+
+	nlog(NLOG_DEBUG, "acceptclient: new client fd=%d", client->cc_fd);
 	return 0;
 
 err:
-	if (cfd != -1)
-		close(cfd);
-	if (client)
+	if (client) {
+		if (client->cc_fd != -1)
+			close(client->cc_fd);
 		free(client);
+	}
 	return -1;
 }
 
@@ -152,7 +155,7 @@ err:
  * read a command from the given client and execute it.
  */
 static kqdisp
-readclient(kq_t *kq, int fd, void *udata) {
+readclient(int fd, void *udata) {
 ctlclient_t	*client = udata;
 int		 i;
 ssize_t		 n;
@@ -161,7 +164,6 @@ struct iovec	 iov;
 nvlist_t	*cmd = NULL;
 
 	(void)fd;
-	(void)kq;
 
 	nlog(NLOG_DEBUG, "readclient: fd=%d", client->cc_fd);
 
@@ -198,14 +200,14 @@ nvlist_t	*cmd = NULL;
 		goto err;
 	}
 
-	clientcmd(kq, client, cmd);
+	clientcmd(client, cmd);
 
 	/* fallthrough - we handled the command so close the client */
 err:
 	if (cmd)
 		nvlist_destroy(cmd);
 
-	close(client->cc_fd);
+	kqclose(client->cc_fd);
 	free(client);
 	return KQ_STOP;
 }
@@ -214,7 +216,7 @@ err:
  * handle a command from a client and reply to it.
  */
 static void
-clientcmd(kq_t *kq, ctlclient_t *client, nvlist_t *cmd)
+clientcmd(ctlclient_t *client, nvlist_t *cmd)
 {
 char const	*cmdname;
 
@@ -232,7 +234,7 @@ char const	*cmdname;
 		if (strcmp(cmdname, chandlers[i].ch_cmd))
 			continue;
 
-		chandlers[i].ch_handler(kq, client, cmd);
+		chandlers[i].ch_handler(client, cmd);
 		return;
 	}
 
@@ -240,15 +242,13 @@ char const	*cmdname;
 }
 
 static void
-send_response(kq_t *kq, ctlclient_t *client, nvlist_t *resp) {
+send_response(ctlclient_t *client, nvlist_t *resp) {
 char		*rbuf = NULL;
 size_t		 rsz = 0;
 struct msghdr	 mhdr;
 struct iovec	 iov;
 ssize_t		 n;
 int		 i;
-
-	(void)kq;
 
 	if ((i = nvlist_error(resp)) != 0) {
 		nlog(NLOG_DEBUG, "send_response: nvlist error: %s",
@@ -278,14 +278,13 @@ int		 i;
 }
 
 static void
-h_list_interfaces(kq_t *kq, ctlclient_t *client, nvlist_t *cmd) {
+h_list_interfaces(ctlclient_t *client, nvlist_t *cmd) {
 size_t		  nintfs = 0, n = 0;
 interface_t	 *intf = NULL;
 nvlist_t const	**nvintfs = NULL;
 nvlist_t	 *resp = NULL;
 int		  i;
 
-	(void)kq;
 	(void)client;
 	(void)cmd;
 
@@ -333,7 +332,7 @@ int		  i;
 		goto err;
 	}
 
-	send_response(kq, client, resp);
+	send_response(client, resp);
 
 err:
 	if (nvintfs)

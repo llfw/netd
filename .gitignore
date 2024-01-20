@@ -1,3 +1,4 @@
+/local.mk
 *.swp*
 *.o
 *.core

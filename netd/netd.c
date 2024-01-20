@@ -55,8 +55,6 @@ va_list	ap;
 
 int
 main(int argc, char **argv) {
-kq_t	*kq;
-
 	time(&current_time);
 
 	if (argc != 1) {
@@ -66,8 +64,8 @@ kq_t	*kq;
 
 	nlog(NLOG_INFO, "starting");
 
-	if ((kq = kqnew()) == NULL) {
-		nlog(NLOG_FATAL, "kqnew: %s", strerror(errno));
+	if (kqinit() == -1) {
+		nlog(NLOG_FATAL, "kqinit: %s", strerror(errno));
 		return 1;
 	}
 
@@ -80,22 +78,22 @@ kq_t	*kq;
 	 * state has to be initialised before netlink so it can receive
 	 * netlink's boot-time newlink/newaddr messages.
 	 */
-	if (state_init(kq) == -1) {
+	if (state_init() == -1) {
 		nlog(NLOG_FATAL, "state init failed");
 		return 1;
 	}
 
-	if (nl_setup(kq) == -1) {
+	if (nl_setup() == -1) {
 		nlog(NLOG_FATAL, "netlink setup failed");
 		return 1;
 	}
 
-	if (ctl_setup(kq) == -1) {
+	if (ctl_setup() == -1) {
 		nlog(NLOG_FATAL, "ctl setup failed");
 		return 1;
 	}
 
-	if (kqrun(kq) == -1) {
+	if (kqrun() == -1) {
 		nlog(NLOG_FATAL, "kqrun: %s", strerror(errno));
 		return 1;
 	}

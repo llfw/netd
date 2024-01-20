@@ -32,13 +32,12 @@
 #include	<netinet/if_ether.h>
 
 #include	"db.h"
-#include	"kq.h"
 
 /*
  * manage running system state (mainly interfaces).
  */
 
-int	state_init(kq_t *);
+int	state_init(void);
 
 typedef struct network {
 	SLIST_ENTRY(network)	 net_entry;

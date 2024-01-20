@@ -40,23 +40,27 @@ typedef enum {
 	KQ_STOP,	/* stop listening */
 } kqdisp;
 
-/* reference to a kq instance */
-struct kq;
-typedef struct kq kq_t;
-
-/* create a new kqueue instance */
-kq_t		 *kqnew		(void);
+/* initialise kq */
+int		 kqinit		(void);
 
 /* start the kq runner.  only returns on failure. */
-int		 kqrun		(kq_t *);
+int		 kqrun		(void);
+
+/* register an fd in kqueue.  this must be done before using it. */
+int		 kqopen		(int fd);
+
+/* create a socket and register it with kq in a single operation */
+int		 kqsocket	(int, int, int);
+
+/* unregister an fd, close it and cancel any pending events */
+int		 kqclose	(int fd);
 
 /*
- * register for read events on an fd.  return KQ_REARM to continue listening
- * for events, or KQ_STOP to remove the registration.
+ * register for read events on an fd.  the handler can return KQ_REARM to
+ * continue listening for events, or KQ_STOP to remove the registration.
  */
-typedef kqdisp (*kqreadcb) (kq_t *, int fd, void *udata);
-int		 kqread		(kq_t *, int fd,
-				 kqreadcb reader, void *udata);
+typedef kqdisp (*kqreadcb) (int fd, void *udata);
+int		 kqread		(int fd, kqreadcb reader, void *udata);
 
 /*
  * register a timer event that fires every 'when' units, where units is one of
@@ -65,8 +69,8 @@ int		 kqread		(kq_t *, int fd,
  * regardless of the disposition return.
  */
 
-typedef kqdisp (*kqtimercb) (kq_t *, void *udata);
-int		kqtimer		(kq_t *, int when, unsigned unit,
+typedef kqdisp (*kqtimercb) (void *udata);
+int		kqtimer		(int when, unsigned unit,
 				 kqtimercb handler, void *udata);
 
 #endif	/* !NETD_KQ_H_INCLUDED */

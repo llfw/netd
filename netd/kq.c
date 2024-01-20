@@ -22,6 +22,7 @@
 
 #include	<sys/types.h>
 #include	<sys/event.h>
+#include	<sys/socket.h>
 
 #include	<assert.h>
 #include	<errno.h>
@@ -29,6 +30,7 @@
 #include	<string.h>
 #include	<stdio.h>
 #include	<time.h>
+#include	<unistd.h>
 
 #include	"netd.h"
 #include	"kq.h"
@@ -36,54 +38,102 @@
 
 time_t current_time;
 
+/* kq_fd represents a single open fd */
+#define	KQF_OPEN	0x1u
+#define	KFD_IS_OPEN(kfd)	(((kfd)->kf_flags & KQF_OPEN) == KQF_OPEN)
+
 typedef struct kq_fd {
 	kqreadcb	 kf_readh;
 	void		*kf_udata;
+	uint8_t		 kf_flags;
 } kq_fd_t;
 
-struct kq {
-	int		 kq_fd;
-	struct kq_fd	*kq_fdtable;
-	size_t		 kq_nfds;
-};
+/* kq represents a kqueue instance */
+typedef struct kq {
+	int	 kq_fd;
+	kq_fd_t	*kq_fdtable;
+	size_t	 kq_nfds;
+} kq_t;
 
-static struct kq_fd	*kq_get_fd(kq_t *kq, int fd);
+static kq_fd_t	*kq_get_fd(int fd);
 
-static struct kq_fd *
-kq_get_fd(kq_t *kq, int fd) {
-	if ((size_t)fd >= kq->kq_nfds) {
-		kq->kq_nfds = (size_t)fd + 1;
-		kq->kq_fdtable =
-			realloc(kq->kq_fdtable,
-				sizeof(struct kq_fd) * kq->kq_nfds);
-		if (kq->kq_fdtable == NULL)
-			panic("kq_get_fd: out of memory");
+/* the global instance */
+static kq_t kq;
+
+int
+kqopen(int fd) {
+size_t	elem = (size_t)fd;
+
+	if (elem >= kq.kq_nfds) {
+	kq_fd_t	*newtable;
+
+		newtable = calloc(elem + 1, sizeof(kq_fd_t));
+		if (!newtable)
+			return -1;
+
+		if (kq.kq_fdtable)
+			memcpy(newtable, kq.kq_fdtable,
+			       sizeof(kq_fd_t) * kq.kq_nfds);
+
+		kq.kq_fdtable = newtable;
+		kq.kq_nfds = (size_t)fd + 1;
 	}
 
-	return &kq->kq_fdtable[fd];
-}
-
-kq_t *
-kqnew(void) {
-kq_t	*ret;
-
-	if ((ret = calloc(1, sizeof(*ret))) == NULL)
-		return NULL;
-
-	if ((ret->kq_fd = kqueue()) == -1) {
-		free(ret);
-		return NULL;
-	}
-
-	return ret;
+	assert(!KFD_IS_OPEN(&kq.kq_fdtable[fd]));
+	kq.kq_fdtable[fd].kf_flags = KQF_OPEN;
+	return 0;
 }
 
 int
-kqread(kq_t *kq, int fd, kqreadcb readh, void *udata) {
+kqsocket(int domain, int type, int protocol) {
+int	fd;
+	if ((fd = socket(domain, type, protocol)) == -1)
+		return -1;
+
+	if (kqopen(fd) == -1) {
+		close(fd);
+		return -1;
+	}
+
+	return fd;
+}
+
+int
+kqclose(int fd) {
+kq_fd_t	*kfd = kq_get_fd(fd);
+
+	assert(KFD_IS_OPEN(kfd));
+	kfd->kf_flags &= ~KQF_OPEN;
+	return close(fd);
+}
+
+
+static kq_fd_t *
+kq_get_fd(int fd) {
+	assert((size_t)fd < kq.kq_nfds);
+	assert(KFD_IS_OPEN(&kq.kq_fdtable[fd]));
+	return &kq.kq_fdtable[fd];
+}
+
+int
+kqinit(void) {
+	time(&current_time);
+
+	memset(&kq, 0, sizeof(kq));
+
+	if ((kq.kq_fd = kqueue()) == -1) {
+		return -1;
+	}
+
+	return 0;
+}
+
+int
+kqread(int fd, kqreadcb readh, void *udata) {
 struct kevent	 ev;
 struct kq_fd	*kfd;
 
-	kfd = kq_get_fd(kq, fd);
+	kfd = kq_get_fd(fd);
 	assert(kfd);
 
 	kfd->kf_readh = readh;
@@ -95,7 +145,7 @@ struct kq_fd	*kfd;
 	ev.flags = EV_ADD | EV_ENABLE | EV_ONESHOT;
 	ev.udata = (void *)(uintptr_t)fd;
 
-	if (kevent(kq->kq_fd, &ev, 1, NULL, 0, NULL) != 0)
+	if (kevent(kq.kq_fd, &ev, 1, NULL, 0, NULL) != 0)
 		return -1;
 
 	return 0;
@@ -109,7 +159,7 @@ struct kq_timer {
 };
 
 int
-kqtimer(kq_t *kq, int when, unsigned unit, kqtimercb handler, void *udata) {
+kqtimer(int when, unsigned unit, kqtimercb handler, void *udata) {
 struct kevent	 ev;
 struct kq_timer	*timer;
 
@@ -129,27 +179,30 @@ struct kq_timer	*timer;
 	ev.flags = EV_ADD | EV_ENABLE | EV_ONESHOT;
 	ev.udata = timer;
 
-	if (kevent(kq->kq_fd, &ev, 1, NULL, 0, NULL) != 0)
+	if (kevent(kq.kq_fd, &ev, 1, NULL, 0, NULL) != 0)
 		return -1;
 
 	return 0;
 }
 
 static int
-kq_dispatch_event(kq_t *kq, struct kevent *ev) {
+kq_dispatch_event(struct kevent *ev) {
 	if (ev->filter == EVFILT_READ) {
 	int	 fd = (int)(uintptr_t)ev->udata;
-	kq_fd_t	*kfd = kq_get_fd(kq, fd);
+	kq_fd_t	*kfd = kq_get_fd(fd);
 
 		assert(kfd);
 		assert(kfd->kf_readh);
 
-		switch (kfd->kf_readh(kq, (int)ev->ident, kfd->kf_udata)) {
+		switch (kfd->kf_readh((int)ev->ident, kfd->kf_udata)) {
 		case KQ_REARM:
-			if (kqread(kq, (int)ev->ident, kfd->kf_readh,
+			/* the kfd may have moved in memory */
+			kfd = kq_get_fd(fd);
+
+			if (kqread((int)ev->ident, kfd->kf_readh,
 				   kfd->kf_udata) == -1) {
 				nlog(NLOG_ERROR, "kq_dispatch_event: "
-					"failed to rearm read");
+				     "failed to rearm read");
 				return -1;
 			}
 			break;
@@ -166,9 +219,9 @@ kq_dispatch_event(kq_t *kq, struct kevent *ev) {
 
 		assert(timer->kt_callback);
 
-		switch (timer->kt_callback(kq, timer->kt_udata)) {
+		switch (timer->kt_callback(timer->kt_udata)) {
 		case KQ_REARM:
-			if (kqtimer(kq, timer->kt_when,
+			if (kqtimer(timer->kt_when,
 				    timer->kt_unit,
 				    timer->kt_callback,
 				    timer->kt_udata) == -1) {
@@ -179,6 +232,7 @@ kq_dispatch_event(kq_t *kq, struct kevent *ev) {
 			break;
 
 		case KQ_STOP:
+			free(timer);
 			break;
 
 		default:
@@ -193,19 +247,19 @@ kq_dispatch_event(kq_t *kq, struct kevent *ev) {
 }
 
 int
-kqrun(kq_t *kq) {
+kqrun(void) {
 struct kevent	 ev;
 int		 n;
 
 	nlog(NLOG_INFO, "running");
 
-	while ((n = kevent(kq->kq_fd, NULL, 0, &ev, 1, NULL)) != -1) {
+	while ((n = kevent(kq.kq_fd, NULL, 0, &ev, 1, NULL)) != -1) {
 		time(&current_time);
 
 		nlog(NLOG_DEBUG, "kqrun: got event");
 
 		if (n) {
-			if (kq_dispatch_event(kq, &ev) == -1) {
+			if (kq_dispatch_event(&ev) == -1) {
 				nlog(NLOG_FATAL, "kqrun: dispatch failed");
 				return -1;
 			}

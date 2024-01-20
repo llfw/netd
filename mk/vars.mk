@@ -40,7 +40,7 @@ WARNFLAGS	+= -Werror
 
 # Sanitizers.
 .if defined(SANITIZE)
-CFLAGS		+= -fsanitize=address
+CFLAGS		+= -fsanitize=address -fsanitize=undefined
 .endif
 
 .export CC CPPFLAGS CFLAGS LDFLAGS

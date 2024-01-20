@@ -42,7 +42,7 @@
 #include	"state.h"
 #include	"log.h"
 
-static kqdisp	donlread(kq_t *, int fd, void *udata);
+static kqdisp	donlread(int fd, void *udata);
 
 static void	hdl_rtm_newlink(struct nlmsghdr *);
 static void	hdl_rtm_dellink(struct nlmsghdr *);
@@ -68,24 +68,22 @@ socklen_t	 optlen;
 	if ((ret = calloc(1, sizeof(*ret))) == NULL)
 		goto err;
 
-	if ((ret->ns_fd = socket(AF_NETLINK, SOCK_RAW | flags,
-				 NETLINK_ROUTE)) == -1)
+	if ((ret->ns_fd = kqsocket(AF_NETLINK, SOCK_RAW | flags,
+				   NETLINK_ROUTE)) == -1)
 		goto err;
 
         optval = 1;
         optlen = sizeof(optval);
-	if (setsockopt(ret->ns_fd, SOL_NETLINK, NETLINK_MSG_INFO, &optval,
-		       optlen) != 0)
+	if (setsockopt(ret->ns_fd, SOL_NETLINK, NETLINK_MSG_INFO,
+		       &optval, optlen) != 0)
 		goto err;
 
 	return ret;
 
 err:
 	err = errno;
-
 	if (ret && ret->ns_fd)
-		close(ret->ns_fd);
-
+		kqclose(ret->ns_fd);
 	free(ret);
 	errno = err;
 	return NULL;
@@ -93,12 +91,12 @@ err:
 
 void
 nlsocket_close(nlsocket_t *nls) {
-	close(nls->ns_fd);
+	kqclose(nls->ns_fd);
 	free(nls);
 }
 
 int
-nl_setup(struct kq *kq) {
+nl_setup(void) {
 struct nlsocket	*nls = NULL;
 int		 nl_groups[] = {
 	RTNLGRP_LINK,
@@ -110,7 +108,8 @@ int		 nl_groups[] = {
 	RTNLGRP_IPV6_ROUTE,
 };
 
-	if ((nls = nlsocket_create(SOCK_NONBLOCK | SOCK_CLOEXEC)) == NULL) {
+	nls = nlsocket_create(SOCK_NONBLOCK | SOCK_CLOEXEC);
+	if (!nls) {
 		nlog(NLOG_FATAL, "nl_setup: nlsocket_create: %s",
 		     strerror(errno));
 		goto err;
@@ -141,7 +140,7 @@ int		 nl_groups[] = {
 		goto err;
 	}
 
-	if (kqread(kq, nls->ns_fd, donlread, nls) == -1) {
+	if (kqread(nls->ns_fd, donlread, nls) == -1) {
 		nlog(NLOG_FATAL, "nl_setup: kq_register_read: %s",
 		     strerror(errno));
 		goto err;
@@ -301,8 +300,10 @@ struct ifinfomsg		*ifinfo = NLMSG_DATA(nlmsg);
 struct rtattr			*attrmsg = NULL;
 size_t				 attrlen;
 struct netlink_newlink_data	 msg;
+struct rtnl_link_stats64	 stats;
 
 	memset(&msg, 0, sizeof(msg));
+	memset(&stats, 0, sizeof(stats));
 
 	for (attrmsg = IFLA_RTA(ifinfo), attrlen = IFLA_PAYLOAD(nlmsg);
 	     RTA_OK(attrmsg, (int) attrlen);
@@ -314,7 +315,9 @@ struct netlink_newlink_data	 msg;
 			break;
 
 		case IFLA_STATS64:
-			msg.nl_stats = RTA_DATA(attrmsg);
+			/* copy out since netlink can misalign 8-byte values */
+			memcpy(&stats, RTA_DATA(attrmsg), sizeof(stats));
+			msg.nl_stats = &stats;
 			break;
 		}
 	}
@@ -421,11 +424,10 @@ donlmsg(struct nlmsghdr *hdr) {
 }
 
 static kqdisp
-donlread(kq_t *kq, int fd, void *udata) {
+donlread(int fd, void *udata) {
 nlsocket_t	*nls = udata;
 struct nlmsghdr	*nlhdr;
 
-	(void)kq;
 	(void)fd;
 
 	while ((nlhdr = nlsocket_recv(nls)) != NULL)
