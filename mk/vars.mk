@@ -12,6 +12,20 @@ CFLAGS		= -std=c17 -pedantic -O0 -g -fPIE \
 		  -fstack-protector-strong ${WARNFLAGS}
 LDFLAGS		= -pie
 
+# flangs for clang-analyzer
+ANALYSER_FLAGS	= \
+	-enable-checker nullability.NullableDereferenced 	\
+	-enable-checker nullability.NullablePassedToNonnull	\
+	-enable-checker nullability.NullableReturnedFromNonnull	\
+	-enable-checker optin.portability.UnixAPI		\
+	-enable-checker valist.CopyToSelf			\
+	-enable-checker valist.Uninitialized			\
+	-enable-checker valist.Unterminated
+
+PREFIX		?= /usr/local
+
+.-include "${TOPDIR}/local.mk"
+
 # clang's -Weverything is not supposed to be enabled by default, but only when
 # linting to detect new warnings, so allow the user to enable it with a
 # variable.
@@ -28,17 +42,5 @@ WARNFLAGS	+= -Werror
 .if defined(SANITIZE)
 CFLAGS		+= -fsanitize=address
 .endif
-
-# flangs for clang-analyzer
-ANALYSER_FLAGS	= \
-	-enable-checker nullability.NullableDereferenced 	\
-	-enable-checker nullability.NullablePassedToNonnull	\
-	-enable-checker nullability.NullableReturnedFromNonnull	\
-	-enable-checker optin.portability.UnixAPI		\
-	-enable-checker valist.CopyToSelf			\
-	-enable-checker valist.Uninitialized			\
-	-enable-checker valist.Unterminated
-
-PREFIX		?= /usr/local
 
 .export CC CPPFLAGS CFLAGS LDFLAGS
