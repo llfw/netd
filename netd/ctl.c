@@ -54,7 +54,7 @@ typedef struct chandler {
 static void h_list_interfaces(ctlclient_t *, nvlist_t *);
 
 static chandler_t chandlers[] = {
-	{ CTL_CMD_LIST_INTERFACES, h_list_interfaces },
+	{ CC_GETIFS, h_list_interfaces },
 };
 
 static kqdisp	readclient	(int fd, ssize_t, int,
@@ -194,12 +194,12 @@ char const	*cmdname;
 
 	(void)client;
 
-	if (!nvlist_exists_string(cmd, CTL_CMD_NAME)) {
+	if (!nvlist_exists_string(cmd, CP_CMD)) {
 		nlog(NLOG_DEBUG, "clientcmd: missing CTL_CMD_NAME");
 		return;
 	}
 
-	cmdname = nvlist_get_string(cmd, CTL_CMD_NAME);
+	cmdname = nvlist_get_string(cmd, CP_CMD);
 	nlog(NLOG_DEBUG, "clientcmd: cmd=%s", cmdname);
 
 	for (size_t i = 0; i < sizeof(chandlers) / sizeof(*chandlers); ++i) {
@@ -278,52 +278,43 @@ int		  i;
 		nvlist_t	*nvl = nvlist_create(0);
 		uint64_t	 operstate;
 
-			nvlist_add_string(nvl, CTL_PARM_INTERFACE_NAME,
-					  intf->if_name);
+			nvlist_add_string(nvl, CP_IFACE_NAME, intf->if_name);
 
-			nvlist_add_number(nvl, CTL_PARM_INTERFACE_RXRATE,
+			nvlist_add_number(nvl, CP_IFACE_RXRATE,
 					  intf->if_rxrate);
-			nvlist_add_number(nvl, CTL_PARM_INTERFACE_TXRATE,
+			nvlist_add_number(nvl, CP_IFACE_TXRATE,
 					  intf->if_txrate);
 
 			switch (intf->if_operstate) {
 			case IF_OPER_NOTPRESENT:
-				operstate =
-				  CTL_VALUE_INTERFACE_OPERSTATE_NOT_PRESENT;
+				operstate = CV_IFACE_OPER_NOT_PRESENT;
 				break;
 
 			case IF_OPER_DOWN:
-				operstate =
-				  CTL_VALUE_INTERFACE_OPERSTATE_DOWN;
+				operstate = CV_IFACE_OPER_DOWN;
 				break;
 
 			case IF_OPER_LOWERLAYERDOWN:
-				operstate =
-				  CTL_VALUE_INTERFACE_OPERSTATE_LOWER_DOWN;
+				operstate = CV_IFACE_OPER_LOWER_DOWN;
 				break;
 
 			case IF_OPER_TESTING:
-				operstate =
-				  CTL_VALUE_INTERFACE_OPERSTATE_TESTING;
+				operstate = CV_IFACE_OPER_TESTING;
 				break;
 
 			case IF_OPER_DORMANT:
-				operstate =
-				  CTL_VALUE_INTERFACE_OPERSTATE_DORMANT;
+				operstate = CV_IFACE_OPER_DORMANT;
 				break;
 
 			case IF_OPER_UP:
-				operstate =
-				  CTL_VALUE_INTERFACE_OPERSTATE_UP;
+				operstate = CV_IFACE_OPER_UP;
 				break;
 
 			default:
-				operstate =
-				  CTL_VALUE_INTERFACE_OPERSTATE_UNKNOWN;
+				operstate = CV_IFACE_OPER_UNKNOWN;
 				break;
 			}
-			nvlist_add_number(nvl, CTL_PARM_INTERFACE_OPERSTATE,
-					  operstate);
+			nvlist_add_number(nvl, CP_IFACE_OPER, operstate);
 
 			if ((i = nvlist_error(nvl)) != 0) {
 				nlog(NLOG_DEBUG, "h_list_interfaces: nvl: %s",
@@ -335,7 +326,7 @@ int		  i;
 			++n;
 		}
 
-		nvlist_add_nvlist_array(resp, CTL_PARM_INTERFACES,
+		nvlist_add_nvlist_array(resp, CP_IFACE,
 					nvintfs, nintfs);
 	}
 

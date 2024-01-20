@@ -352,8 +352,6 @@ struct rtnl_link_stats64	 stats;
 
 		case IFLA_OPERSTATE:
 			msg.nl_operstate = *((uint8_t *)RTA_DATA(attrmsg));
-			nlog(NLOG_DEBUG, "RTM_NEWLINK: operstate=%d",
-			     (int) msg.nl_operstate);
 			break;
 
 		case IFLA_STATS64:

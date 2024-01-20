@@ -141,7 +141,7 @@ int			 ret = 0;
 		goto done;
 	}
 
-	resp = send_simple_command(server, CTL_CMD_LIST_INTERFACES);
+	resp = send_simple_command(server, CC_GETIFS);
 	if (!resp) {
 		xo_emit("{E:/%s: failed to send command: %s\n}",
 			getprogname(), strerror(errno));
@@ -149,10 +149,10 @@ int			 ret = 0;
 		goto done;
 	}
 
-	if (!nvlist_exists_nvlist_array(resp, CTL_PARM_INTERFACES))
+	if (!nvlist_exists_nvlist_array(resp, CP_IFACE))
 		goto done;
 
-	intfs = nvlist_get_nvlist_array(resp, CTL_PARM_INTERFACES, &nintfs);
+	intfs = nvlist_get_nvlist_array(resp, CP_IFACE, &nintfs);
 
 	xo_emit("{T:NAME/%-16s}{T:OPER/%-4s}{T:TX/%8s}{T:RX/%8s}\n");
 
@@ -160,32 +160,32 @@ int			 ret = 0;
 	nvlist_t const *nonnull	intf = intfs[i];
 	char const *nonnull	operstate = "UNK";
 
-		if (!nvlist_exists_string(intf, CTL_PARM_INTERFACE_NAME) ||
-		    !nvlist_exists_number(intf, CTL_PARM_INTERFACE_OPERSTATE) ||
-		    !nvlist_exists_number(intf, CTL_PARM_INTERFACE_TXRATE) ||
-		    !nvlist_exists_number(intf, CTL_PARM_INTERFACE_RXRATE)) {
+		if (!nvlist_exists_string(intf, CP_IFACE_NAME) ||
+		    !nvlist_exists_number(intf, CP_IFACE_OPER) ||
+		    !nvlist_exists_number(intf, CP_IFACE_TXRATE) ||
+		    !nvlist_exists_number(intf, CP_IFACE_RXRATE)) {
 			xo_emit("{E:/%s: invalid response}\n", getprogname());
 			ret = 1;
 			goto done;
 		}
 
-		switch (nvlist_get_number(intf, CTL_PARM_INTERFACE_OPERSTATE)) {
-		case CTL_VALUE_INTERFACE_OPERSTATE_NOT_PRESENT:
+		switch (nvlist_get_number(intf, CP_IFACE_OPER)) {
+		case CV_IFACE_OPER_NOT_PRESENT:
 			operstate = "NOHW";
 			break;
-		case CTL_VALUE_INTERFACE_OPERSTATE_DOWN:
+		case CV_IFACE_OPER_DOWN:
 			operstate = "DOWN";
 			break;
-		case CTL_VALUE_INTERFACE_OPERSTATE_LOWER_DOWN:
+		case CV_IFACE_OPER_LOWER_DOWN:
 			operstate = "LDWN";
 			break;
-		case CTL_VALUE_INTERFACE_OPERSTATE_TESTING:
+		case CV_IFACE_OPER_TESTING:
 			operstate = "TEST";
 			break;
-		case CTL_VALUE_INTERFACE_OPERSTATE_DORMANT:
-			operstate = "DMNT";
+		case CV_IFACE_OPER_DORMANT:
+			operstate = "DRMT";
 			break;
-		case CTL_VALUE_INTERFACE_OPERSTATE_UP:
+		case CV_IFACE_OPER_UP:
 			operstate = "UP";
 			break;
 		}
@@ -196,10 +196,10 @@ int			 ret = 0;
 			"{[:8}{Vhn,hn-decimal,hn-1000:txrate/%ju}b/s{]:}"
 			"{[:8}{Vhn,hn-decimal,hn-1000:rxrate/%ju}b/s{]:}"
 			"\n",
-			nvlist_get_string(intf, CTL_PARM_INTERFACE_NAME),
+			nvlist_get_string(intf, CP_IFACE_NAME),
 			operstate,
-			nvlist_get_number(intf, CTL_PARM_INTERFACE_TXRATE),
-			nvlist_get_number(intf, CTL_PARM_INTERFACE_RXRATE));
+			nvlist_get_number(intf, CP_IFACE_TXRATE),
+			nvlist_get_number(intf, CP_IFACE_RXRATE));
 		xo_close_instance("interface");
 	}
 
@@ -292,7 +292,7 @@ nvlist_t	*cmd = NULL;
 int		 err;
 
 	cmd = nvlist_create(0);
-	nvlist_add_string(cmd, CTL_CMD_NAME, command);
+	nvlist_add_string(cmd, CP_CMD, command);
 	
 	if ((err = nvlist_error(cmd)) != 0) {
 		errno = err;

@@ -41,24 +41,24 @@
  * protocol constants for nvlist keys.
  */
 
-#define	CTL_CMD_NAME			"CMD_NAME"
+#define	CP_CMD			"CMD_NAME"
 
 /* INTF_LIST command - request */
-#define	CTL_CMD_LIST_INTERFACES		"INTF_LIST"
+#define	CC_GETIFS		"INTF_LIST"
 
 /* INTF_LIST command - response */
-#define	CTL_PARM_INTERFACES		"INTFS"		/* nvlist array */
-#define	CTL_PARM_INTERFACE_NAME		"NAME"		/* string */
-#define CTL_PARM_INTERFACE_FLAGS	"FLAGS"		/* string array */
-#define CTL_PARM_INTERFACE_OPERSTATE	"OPER_STATE"	/* number */
-#define CTL_VALUE_INTERFACE_OPERSTATE_UNKNOWN		0
-#define CTL_VALUE_INTERFACE_OPERSTATE_NOT_PRESENT	1
-#define CTL_VALUE_INTERFACE_OPERSTATE_DOWN		2
-#define CTL_VALUE_INTERFACE_OPERSTATE_LOWER_DOWN	3
-#define CTL_VALUE_INTERFACE_OPERSTATE_TESTING		4
-#define CTL_VALUE_INTERFACE_OPERSTATE_DORMANT		5
-#define CTL_VALUE_INTERFACE_OPERSTATE_UP		6
-#define	CTL_PARM_INTERFACE_RXRATE	"RX"		/* number */
-#define	CTL_PARM_INTERFACE_TXRATE	"TX"		/* number */
+#define	CP_IFACE		"INTFS"		/* nvlist array */
+#define	CP_IFACE_NAME		"NAME"		/* string */
+#define CP_IFACE_FLAGS		"FLAGS"		/* string array */
+#define CP_IFACE_OPER		"OPER_STATE"	/* number */
+#define CV_IFACE_OPER_UNKNOWN		0
+#define CV_IFACE_OPER_NOT_PRESENT	1
+#define CV_IFACE_OPER_DOWN		2
+#define CV_IFACE_OPER_LOWER_DOWN	3
+#define CV_IFACE_OPER_TESTING		4
+#define CV_IFACE_OPER_DORMANT		5
+#define CV_IFACE_OPER_UP		6
+#define	CP_IFACE_RXRATE		"RX"		/* number (bits/sec) */
+#define	CP_IFACE_TXRATE		"TX"		/* number (bits/sec) */
 
 #endif	/* !NETD_PROTOCOL_H_INCLUDED */
