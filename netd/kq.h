@@ -28,6 +28,9 @@
  * register handlers for various events.
  */
 
+#include	<sys/types.h>
+#include	<sys/socket.h>
+
 #include	"defs.h"
 
 /*
@@ -64,6 +67,22 @@ int		 kqclose	(int fd);
 typedef kqdisp (*kqreadcb) (int fd, void *nullable udata);
 int		 kqread		(int fd, kqreadcb nonnull reader,
 				 void *nullable udata);
+
+/*
+ * wait for a connection to be ready on the given server socket, then accept it
+ * and pass it to the callback.  the arguments are as described in accept4(2).
+ *
+ * the fd will have kqopen() called on it automatically.
+ *
+ * if the accept4() call fails, client_fd will be -1, errno is set and addr is
+ * NULL.
+ */
+typedef kqdisp (*kqaccept4cb) (int server_fd, int client_fd,
+			       struct sockaddr *nullable addr,
+			       socklen_t addrlen,
+			       void *nullable udata);
+int kqaccept4(int server_fd, int flags, kqaccept4cb nonnull,
+	      void *nullable udata);
 
 /*
  * register a timer event that fires every 'when' units, where units is one of

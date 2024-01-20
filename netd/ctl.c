@@ -54,9 +54,9 @@ static chandler_t chandlers[] = {
 	{ CTL_CMD_LIST_INTERFACES, h_list_interfaces },
 };
 
-static kqdisp	newclient	(int fd, void *udata);
 static kqdisp	readclient	(int fd, void *udata);
-static int	acceptclient	(int fd);
+static kqdisp	acceptclient	(int, int, struct sockaddr * nullable,
+				 socklen_t, void *nullable);
 static void	clientcmd	(ctlclient_t *, nvlist_t *cmd);
 
 int
@@ -90,8 +90,9 @@ int			sock = -1;
 		goto err;
 	}
 
-	if (kqread(sock, newclient, NULL) == -1) {
-		nlog(NLOG_FATAL, "ctl_setup: kq_register_read: %s",
+	if (kqaccept4(sock, SOCK_CLOEXEC | SOCK_NONBLOCK,
+		      acceptclient, NULL) == -1) {
+		nlog(NLOG_FATAL, "ctl_setup: kqaccept4: %s",
 		     strerror(errno));
 		goto err;
 	}
@@ -106,49 +107,36 @@ err:
 }
 
 static kqdisp
-newclient(int fd, void *udata) {
-	(void) udata;
-
-	while (acceptclient(fd) != -1)
-		;
-
-	if (errno == EAGAIN)
-		return KQ_REARM;
-
-	panic("ctl newclient: acceptclient() failed: %s", strerror(errno));
-}
-
-static int
-acceptclient(int fd) {
+acceptclient(int lsnfd, int fd, struct sockaddr *addr, socklen_t addrlen,
+	     void *udata) {
 ctlclient_t	*client = NULL;
 
-	/* TODO: fix error handling once kqaccept() is available */
+	(void)lsnfd;
+	(void)addr;
+	(void)addrlen;
+	(void)udata;
+
+	if (fd == -1)
+		panic("acceptclient: accept failed: %s", strerror(errno));
+
 	if ((client = calloc(1, sizeof(*client))) == NULL)
 		goto err;
 
-	client->cc_fd = accept4(fd, NULL, NULL, SOCK_NONBLOCK | SOCK_CLOEXEC);
-	if (client->cc_fd == -1)
-		goto err;
+	client->cc_fd = fd;
 
-	if (kqopen(client->cc_fd) == -1)
+	if (kqread(client->cc_fd, readclient, client) == -1)
 		goto err;
-
-	if (kqread(client->cc_fd, readclient, client) == -1) {
-		kqclose(client->cc_fd);
-		free(client);
-		return -1;
-	}
 
 	nlog(NLOG_DEBUG, "acceptclient: new client fd=%d", client->cc_fd);
-	return 0;
+	return KQ_REARM;
 
 err:
 	if (client) {
 		if (client->cc_fd != -1)
-			close(client->cc_fd);
+			kqclose(client->cc_fd);
 		free(client);
 	}
-	return -1;
+	return KQ_REARM;
 }
 
 /*

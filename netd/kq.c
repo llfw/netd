@@ -271,3 +271,62 @@ int		 n;
 	nlog(NLOG_FATAL, "kqrun: kqueue failed: %s", strerror(errno));
 	return -1;
 }
+
+struct kqaccept4data {
+	kqaccept4cb nonnull	callback;
+	int			flags;
+	void *nullable		udata;
+};
+
+static kqdisp
+kqdoaccept(int server_fd, void *udata) {
+int			 newfd;
+struct sockaddr_storage	 addr;
+socklen_t		 addrlen = sizeof(addr);
+struct kqaccept4data	*data = udata;
+kqdisp			 disp = KQ_STOP;
+
+	assert(data);
+	assert(data->callback);
+
+	if ((newfd = accept4(server_fd, (struct sockaddr *)&addr, &addrlen,
+			     data->flags)) == -1) {
+		disp = data->callback(server_fd, -1, NULL, 0, data->udata);
+		goto done;
+	}
+
+	if (kqopen(newfd) == -1) {
+		close(newfd);
+		disp = data->callback(server_fd, -1, NULL, 0, data->udata);
+		goto done;
+	}
+
+	disp = data->callback(server_fd, newfd,
+			      (struct sockaddr *)&addr, addrlen,
+			      data->udata);
+
+done:
+	if (disp == KQ_STOP)
+		free(data);
+
+	return disp;
+}
+
+int
+kqaccept4(int server_fd, int flags, kqaccept4cb callback, void *udata) {
+struct kqaccept4data	*data = NULL;
+
+	if ((data = calloc(1, sizeof(*data))) == NULL)
+		return -1;
+
+	data->callback = callback;
+	data->flags = flags;
+	data->udata = udata;
+
+	if (kqread(server_fd, kqdoaccept, data) == -1) {
+		free(data);
+		return -1;
+	}
+
+	return 0;
+}
