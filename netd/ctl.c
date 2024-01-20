@@ -124,7 +124,7 @@ ctlclient_t	*client = NULL;
 
 	client->cc_fd = fd;
 
-	if (kqread(client->cc_fd, readclient, client) == -1)
+	if (kqonread(client->cc_fd, readclient, client) == -1)
 		goto err;
 
 	nlog(NLOG_DEBUG, "acceptclient: new client fd=%d", client->cc_fd);

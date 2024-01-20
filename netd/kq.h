@@ -64,9 +64,8 @@ int		 kqclose	(int fd);
  * register for read events on an fd.  the handler can return KQ_REARM to
  * continue listening for events, or KQ_STOP to remove the registration.
  */
-typedef kqdisp (*kqreadcb) (int fd, void *nullable udata);
-int		 kqread		(int fd, kqreadcb nonnull reader,
-				 void *nullable udata);
+typedef kqdisp (*kqonreadcb) (int fd, void *nullable udata);
+int kqonread(int fd, kqonreadcb nonnull reader, void *nullable udata);
 
 /*
  * wait for a connection to be ready on the given server socket, then accept it

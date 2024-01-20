@@ -140,7 +140,7 @@ int		 nl_groups[] = {
 		goto err;
 	}
 
-	if (kqread(nls->ns_fd, donlread, nls) == -1) {
+	if (kqonread(nls->ns_fd, donlread, nls) == -1) {
 		nlog(NLOG_FATAL, "nl_setup: kq_register_read: %s",
 		     strerror(errno));
 		goto err;

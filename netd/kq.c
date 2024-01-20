@@ -43,7 +43,7 @@ time_t current_time;
 #define	KFD_IS_OPEN(kfd)	(((kfd)->kf_flags & KQF_OPEN) == KQF_OPEN)
 
 typedef struct kq_fd {
-	kqreadcb	 kf_readh;
+	kqonreadcb	 kf_readh;
 	void		*kf_udata;
 	uint8_t		 kf_flags;
 } kq_fd_t;
@@ -129,7 +129,7 @@ kqinit(void) {
 }
 
 int
-kqread(int fd, kqreadcb readh, void *udata) {
+kqonread(int fd, kqonreadcb readh, void *udata) {
 struct kevent	 ev;
 struct kq_fd	*kfd;
 
@@ -199,8 +199,8 @@ kq_dispatch_event(struct kevent *ev) {
 			/* the kfd may have moved in memory */
 			kfd = kq_get_fd(fd);
 
-			if (kqread((int)ev->ident, kfd->kf_readh,
-				   kfd->kf_udata) == -1) {
+			if (kqonread((int)ev->ident, kfd->kf_readh,
+				     kfd->kf_udata) == -1) {
 				nlog(NLOG_ERROR, "kq_dispatch_event: "
 				     "failed to rearm read");
 				return -1;
@@ -323,7 +323,7 @@ struct kqaccept4data	*data = NULL;
 	data->flags = flags;
 	data->udata = udata;
 
-	if (kqread(server_fd, kqdoaccept, data) == -1) {
+	if (kqonread(server_fd, kqdoaccept, data) == -1) {
 		free(data);
 		return -1;
 	}
