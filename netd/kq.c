@@ -43,22 +43,70 @@ time_t current_time;
 #define	KFD_IS_OPEN(kfd)	(((kfd)->kf_flags & KQF_OPEN) == KQF_OPEN)
 
 typedef struct kq_fd {
-	kqonreadcb	 kf_readh;
-	void		*kf_udata;
-	uint8_t		 kf_flags;
+	kqonreadcb	kf_readh;
+	void *nullable	kf_udata;
+	uint8_t		kf_flags;
 } kq_fd_t;
+
+static kq_fd_t *nonnull kq_get_fd(int fd);
 
 /* kq represents a kqueue instance */
 typedef struct kq {
-	int	 kq_fd;
-	kq_fd_t	*kq_fdtable;
-	size_t	 kq_nfds;
+	int		  kq_fd;
+	kq_fd_t *nullable kq_fdtable;
+	size_t		  kq_nfds;
 } kq_t;
-
-static kq_fd_t	*kq_get_fd(int fd);
 
 /* the global instance */
 static kq_t kq;
+
+/*
+ * list of jobs to dispatch at the end of the event loop.
+ */
+struct kqjob {
+	struct kqjob *nullable	next;
+	dispatchcb nonnull	handler;
+	void *nullable		data;
+};
+
+static struct {
+	struct kqjob *nullable	head;
+	struct kqjob *nullable	tail;
+} kqjobs = {NULL, NULL};
+
+kqdisp kqdoread(int fd, void *nullable udata);
+kqdisp kqdorecvmsg(int fd, void *nullable udata);
+
+void
+kqdispatch(dispatchcb handler, void *udata) {
+struct kqjob	*job;
+	if ((job = calloc(1, sizeof(*job))) == NULL)
+		panic("kqdispatch: out of memory");
+
+	job->handler = handler;
+	job->data = udata;
+	if (kqjobs.tail)
+		kqjobs.tail->next = kqjobs.tail = job;
+	else
+		kqjobs.head = kqjobs.tail = job;
+}
+
+static void
+runjobs(void) {
+struct kqjob	*job, *njob;
+	/* the job list can be appended to while we're iterating! */
+
+	for (job = kqjobs.head; job; job = job->next)
+		job->handler(job->data);
+
+	for (job = kqjobs.head; job;) {
+		njob = job->next;
+		free(job);
+		job = njob;
+	}
+
+	kqjobs.head = kqjobs.tail = NULL;
+}
 
 int
 kqopen(int fd) {
@@ -265,6 +313,10 @@ int		 n;
 			}
 		}
 
+		/* handle the kqdispatch() queue */
+		nlog(NLOG_DEBUG, "kqrun: running jobs");
+		runjobs();
+
 		nlog(NLOG_DEBUG, "kqrun: sleeping");
 	}
 
@@ -341,6 +393,7 @@ struct kqreaddata {
 	ssize_t			bufsize;
 	void *nullable		udata;
 };
+
 
 kqdisp
 kqdoread(int fd, void *udata) {

@@ -51,6 +51,10 @@ int		 kqinit		(void);
 /* start the kq runner.  only returns on failure. */
 int		 kqrun		(void);
 
+/* call handler(udata) at the end of the current event loop */
+typedef void (*dispatchcb) (void *nullable);
+void kqdispatch(dispatchcb nonnull handler, void *nullable udata);
+
 /* register an fd in kqueue.  this must be done before using it. */
 int		 kqopen		(int fd);
 
