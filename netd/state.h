@@ -79,6 +79,8 @@ typedef struct interface {
 	struct uuid			if_uuid;
 	char const *nonnull		if_name;
 	unsigned int			if_index;
+	uint8_t				if_operstate;
+	uint32_t			if_flags;
 	ifaddr_t *nullable		if_addrs;
 	network_t *nullable		if_network;
 	pinterface_t *nullable		if_pintf;	/* persistent config */

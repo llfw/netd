@@ -67,9 +67,12 @@ void nlsocket_close(nlsocket_t *nonnull);
 /* interface created */
 #define	MSG_NETLINK_NEWLINK	MSG_ID(MSG_C_NETLINK, 1)
 struct netlink_newlink_data {
-	unsigned				nl_ifindex;
-	char const * nonnull			nl_ifname;
-	struct rtnl_link_stats64 * nonnull	nl_stats;
+	unsigned		nl_ifindex;
+	char const * nonnull	nl_ifname;
+	uint8_t			nl_operstate;
+	uint32_t		nl_flags;
+	struct rtnl_link_stats64 * nonnull
+				nl_stats;
 };
 
 /* interface destroyed */

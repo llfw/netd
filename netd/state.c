@@ -143,6 +143,8 @@ struct interface		*intf;
 
 	intf->if_index = msg->nl_ifindex;
 	intf->if_name = strdup(msg->nl_ifname);
+	intf->if_flags = msg->nl_flags;
+	intf->if_operstate = msg->nl_operstate;
 
 	/*
 	 * Set all the stats history entries to the current value to avoid

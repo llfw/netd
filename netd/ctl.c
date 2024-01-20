@@ -25,6 +25,9 @@
 #include	<sys/un.h>
 #include	<sys/nv.h>
 
+#include	<netlink/netlink.h>
+#include	<netlink/route/interface.h>
+
 #include	<assert.h>
 #include	<errno.h>
 #include	<stdlib.h>
@@ -273,6 +276,7 @@ int		  i;
 		/* add each interface to the response */
 		for (intf = interfaces; intf; intf = intf->if_next) {
 		nvlist_t	*nvl = nvlist_create(0);
+		uint64_t	 operstate;
 
 			nvlist_add_string(nvl, CTL_PARM_INTERFACE_NAME,
 					  intf->if_name);
@@ -281,6 +285,45 @@ int		  i;
 					  intf->if_rxrate);
 			nvlist_add_number(nvl, CTL_PARM_INTERFACE_TXRATE,
 					  intf->if_txrate);
+
+			switch (intf->if_operstate) {
+			case IF_OPER_NOTPRESENT:
+				operstate =
+				  CTL_VALUE_INTERFACE_OPERSTATE_NOT_PRESENT;
+				break;
+
+			case IF_OPER_DOWN:
+				operstate =
+				  CTL_VALUE_INTERFACE_OPERSTATE_DOWN;
+				break;
+
+			case IF_OPER_LOWERLAYERDOWN:
+				operstate =
+				  CTL_VALUE_INTERFACE_OPERSTATE_LOWER_DOWN;
+				break;
+
+			case IF_OPER_TESTING:
+				operstate =
+				  CTL_VALUE_INTERFACE_OPERSTATE_TESTING;
+				break;
+
+			case IF_OPER_DORMANT:
+				operstate =
+				  CTL_VALUE_INTERFACE_OPERSTATE_DORMANT;
+				break;
+
+			case IF_OPER_UP:
+				operstate =
+				  CTL_VALUE_INTERFACE_OPERSTATE_UP;
+				break;
+
+			default:
+				operstate =
+				  CTL_VALUE_INTERFACE_OPERSTATE_UNKNOWN;
+				break;
+			}
+			nvlist_add_number(nvl, CTL_PARM_INTERFACE_OPERSTATE,
+					  operstate);
 
 			if ((i = nvlist_error(nvl)) != 0) {
 				nlog(NLOG_DEBUG, "h_list_interfaces: nvl: %s",

@@ -49,7 +49,7 @@ static void	hdl_rtm_dellink(struct nlmsghdr *nonnull);
 static void	hdl_rtm_newaddr(struct nlmsghdr *nonnull);
 static void	hdl_rtm_deladdr(struct nlmsghdr *nonnull);
 
-static void (*handlers[])(struct nlmsghdr *) = {
+static void (*handlers[])(struct nlmsghdr *nonnull) = {
 	[RTM_NEWLINK] = hdl_rtm_newlink,
 	[RTM_DELLINK] = hdl_rtm_dellink,
 	[RTM_NEWADDR] = hdl_rtm_newaddr,
@@ -350,6 +350,12 @@ struct rtnl_link_stats64	 stats;
 			msg.nl_ifname = RTA_DATA(attrmsg);
 			break;
 
+		case IFLA_OPERSTATE:
+			msg.nl_operstate = *((uint8_t *)RTA_DATA(attrmsg));
+			nlog(NLOG_DEBUG, "RTM_NEWLINK: operstate=%d",
+			     (int) msg.nl_operstate);
+			break;
+
 		case IFLA_STATS64:
 			/* copy out since netlink can misalign 8-byte values */
 			memcpy(&stats, RTA_DATA(attrmsg), sizeof(stats));
@@ -363,11 +369,13 @@ struct rtnl_link_stats64	 stats;
 		return;
 	}
 
-	nlog(NLOG_DEBUG, "RTM_NEWLINK: %s<%d> nlmsg_flags=0x%x ifi_flags=0x%x ifi_change=%x",
+	nlog(NLOG_DEBUG, "RTM_NEWLINK: %s<%d> nlmsg_flags=0x%x ifi_flags=0x%x"
+	     "ifi_change=%x",
 	     msg.nl_ifname, ifinfo->ifi_index, nlmsg->nlmsg_flags,
 	     ifinfo->ifi_flags, ifinfo->ifi_change);
 
 	msg.nl_ifindex = (unsigned)ifinfo->ifi_index;
+	msg.nl_flags = ifinfo->ifi_flags;
 	msgbus_post(MSG_NETLINK_NEWLINK, &msg);
 }
 

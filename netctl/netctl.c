@@ -36,6 +36,7 @@
 #include	<inttypes.h>
 
 #include	"protocol.h"
+#include	"defs.h"
 
 int	netd_connect(void);
 
@@ -153,12 +154,14 @@ int			 ret = 0;
 
 	intfs = nvlist_get_nvlist_array(resp, CTL_PARM_INTERFACES, &nintfs);
 
-	xo_emit("{T:NAME/%-16s}{T:TX/%8s}{T:RX/%8s}\n");
+	xo_emit("{T:NAME/%-16s}{T:OPER/%-4s}{T:TX/%8s}{T:RX/%8s}\n");
 
 	for (size_t i = 0; i < nintfs; ++i) {
-	nvlist_t const	*intf = intfs[i];
+	nvlist_t const *nonnull	intf = intfs[i];
+	char const *nonnull	operstate = "UNK";
 
 		if (!nvlist_exists_string(intf, CTL_PARM_INTERFACE_NAME) ||
+		    !nvlist_exists_number(intf, CTL_PARM_INTERFACE_OPERSTATE) ||
 		    !nvlist_exists_number(intf, CTL_PARM_INTERFACE_TXRATE) ||
 		    !nvlist_exists_number(intf, CTL_PARM_INTERFACE_RXRATE)) {
 			xo_emit("{E:/%s: invalid response}\n", getprogname());
@@ -166,12 +169,35 @@ int			 ret = 0;
 			goto done;
 		}
 
+		switch (nvlist_get_number(intf, CTL_PARM_INTERFACE_OPERSTATE)) {
+		case CTL_VALUE_INTERFACE_OPERSTATE_NOT_PRESENT:
+			operstate = "NOHW";
+			break;
+		case CTL_VALUE_INTERFACE_OPERSTATE_DOWN:
+			operstate = "DOWN";
+			break;
+		case CTL_VALUE_INTERFACE_OPERSTATE_LOWER_DOWN:
+			operstate = "LDWN";
+			break;
+		case CTL_VALUE_INTERFACE_OPERSTATE_TESTING:
+			operstate = "TEST";
+			break;
+		case CTL_VALUE_INTERFACE_OPERSTATE_DORMANT:
+			operstate = "DMNT";
+			break;
+		case CTL_VALUE_INTERFACE_OPERSTATE_UP:
+			operstate = "UP";
+			break;
+		}
+
 		xo_open_instance("interface");
 		xo_emit("{V:name/%-16s}"
+			"{V:oper-state/%-4s}"
 			"{[:8}{Vhn,hn-decimal,hn-1000:txrate/%ju}b/s{]:}"
 			"{[:8}{Vhn,hn-decimal,hn-1000:rxrate/%ju}b/s{]:}"
 			"\n",
 			nvlist_get_string(intf, CTL_PARM_INTERFACE_NAME),
+			operstate,
 			nvlist_get_number(intf, CTL_PARM_INTERFACE_TXRATE),
 			nvlist_get_number(intf, CTL_PARM_INTERFACE_RXRATE));
 		xo_close_instance("interface");
