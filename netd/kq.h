@@ -68,6 +68,32 @@ typedef kqdisp (*kqonreadcb) (int fd, void *nullable udata);
 int kqonread(int fd, kqonreadcb nonnull reader, void *nullable udata);
 
 /*
+ * read data from the fd into the provided buffer and call the handler once the
+ * read is complete.  if the read was successful, nbytes is set to the amount
+ * of data which was read.  if an error occurred, nbytes is set to -errno and
+ * the contents of buf are undefined.
+ *
+ * if the handler is rearmed, the read will be repeated with the same buffer.
+ */
+typedef kqdisp (*kqreadcb) (int fd, ssize_t nbytes, void *nullable udata);
+void kqread(int fd, void *nonnull buf, ssize_t bufsize,
+	    kqreadcb nonnull handler, void *nullable udata);
+
+/*
+ * read one message from the fd into the given buffer.  reading will continue
+ * until either the entire message is read, or the buffer is full.  if
+ * successful, nbytes is set to the size of the message and flags contains the
+ * recvmsg msg_flags field.  otherwise, nbytes is set to -errno and flags is
+ * undefined.
+ *
+ * if the handler is rearmed, the read will be repeated with the same buffer.
+ */
+typedef kqdisp (*kqrecvmsgcb) (int fd, ssize_t nbytes, int flags,
+			       void *nullable udata);
+void kqrecvmsg(int fd, void *nonnull buf, ssize_t bufsize,
+	       kqrecvmsgcb nonnull handler, void *nullable udata);
+
+/*
  * wait for a connection to be ready on the given server socket, then accept it
  * and pass it to the callback.  the arguments are as described in accept4(2).
  *

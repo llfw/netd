@@ -42,12 +42,12 @@
 #include	"state.h"
 #include	"log.h"
 
-static kqdisp	donlread(int fd, void *udata);
+static kqdisp	nldomsg(int fd, ssize_t nbytes, void *nullable udata);
 
-static void	hdl_rtm_newlink(struct nlmsghdr *);
-static void	hdl_rtm_dellink(struct nlmsghdr *);
-static void	hdl_rtm_newaddr(struct nlmsghdr *);
-static void	hdl_rtm_deladdr(struct nlmsghdr *);
+static void	hdl_rtm_newlink(struct nlmsghdr *nonnull);
+static void	hdl_rtm_dellink(struct nlmsghdr *nonnull);
+static void	hdl_rtm_newaddr(struct nlmsghdr *nonnull);
+static void	hdl_rtm_deladdr(struct nlmsghdr *nonnull);
 
 static void (*handlers[])(struct nlmsghdr *) = {
 	[RTM_NEWLINK] = hdl_rtm_newlink,
@@ -72,8 +72,8 @@ socklen_t	 optlen;
 				   NETLINK_ROUTE)) == -1)
 		goto err;
 
-        optval = 1;
-        optlen = sizeof(optval);
+	optval = 1;
+	optlen = sizeof(optval);
 	if (setsockopt(ret->ns_fd, SOL_NETLINK, NETLINK_MSG_INFO,
 		       &optval, optlen) != 0)
 		goto err;
@@ -96,7 +96,7 @@ nlsocket_close(nlsocket_t *nls) {
 }
 
 int
-nl_setup(void) {
+nlinit(void) {
 struct nlsocket	*nls = NULL;
 int		 nl_groups[] = {
 	RTNLGRP_LINK,
@@ -110,41 +110,38 @@ int		 nl_groups[] = {
 
 	nls = nlsocket_create(SOCK_NONBLOCK | SOCK_CLOEXEC);
 	if (!nls) {
-		nlog(NLOG_FATAL, "nl_setup: nlsocket_create: %s",
+		nlog(NLOG_FATAL, "nlinit: nlsocket_create: %s",
 		     strerror(errno));
 		goto err;
 	}
 
-        for (unsigned i = 0; i < sizeof(nl_groups) / sizeof(*nl_groups); i++) {
+	for (unsigned i = 0; i < sizeof(nl_groups) / sizeof(*nl_groups); i++) {
 	int		optval = nl_groups[i];
 	socklen_t	optlen = sizeof(optval);
 
 		if (setsockopt(nls->ns_fd, SOL_NETLINK, NETLINK_ADD_MEMBERSHIP,
 			       &optval, optlen) == -1) {
 			nlog(NLOG_FATAL,
-			     "nl_setup: NETLINK_ADD_MEMBERSHIP: %s",
+			     "nlinit: NETLINK_ADD_MEMBERSHIP: %s",
 			     strerror(errno));
 			goto err;
 		}
-        }
+	}
 
 	if (nl_fetch_interfaces() == -1) {
-		nlog(NLOG_FATAL, "nl_setup: nl_fetch_interfaces: %s",
+		nlog(NLOG_FATAL, "nlinit: nl_fetch_interfaces: %s",
 		     strerror(errno));
 		goto err;
 	}
 
 	if (nl_fetch_addresses() == -1) {
-		nlog(NLOG_FATAL, "nl_setup: nl_fetch_addresses: %s",
+		nlog(NLOG_FATAL, "nlinit: nl_fetch_addresses: %s",
 		     strerror(errno));
 		goto err;
 	}
 
-	if (kqonread(nls->ns_fd, donlread, nls) == -1) {
-		nlog(NLOG_FATAL, "nl_setup: kq_register_read: %s",
-		     strerror(errno));
-		goto err;
-	}
+	nls->ns_bufp = nls->ns_buf;
+	kqread(nls->ns_fd, nls->ns_bufp, sizeof(nls->ns_buf), nldomsg, nls);
 
 	return 0;
 
@@ -153,6 +150,83 @@ err:
 		nlsocket_close(nls);
 	
 	return -1;
+}
+
+/*
+ * donlread: call when netlink data is received
+ */
+static kqdisp
+nldomsg(int fd, ssize_t nbytes, void *udata) {
+nlsocket_t	*nls = udata;
+struct nlmsghdr *hdr;
+
+	(void)fd;
+
+	assert(udata);
+
+	if (nbytes < 0)
+		panic("donlread: netlink read error: %s",
+		      strerror(-(int)nbytes));
+
+	nls->ns_bufn += (size_t)nbytes;
+	hdr = (struct nlmsghdr *)nls->ns_bufp;
+
+	while (NLMSG_OK(hdr, (int)nls->ns_bufn)) {
+		nlog(NLOG_DEBUG, "nlhdr len=%u type=%u flags=%u seq=%u pid=%u",
+		     (unsigned int) hdr->nlmsg_len,
+		     (unsigned int) hdr->nlmsg_type,
+		     (unsigned int) hdr->nlmsg_flags,
+		     (unsigned int) hdr->nlmsg_seq,
+		     (unsigned int) hdr->nlmsg_pid);
+
+		if (hdr->nlmsg_type < (sizeof(handlers) / sizeof(*handlers)) &&
+		    handlers[hdr->nlmsg_type] != NULL)
+			handlers[hdr->nlmsg_type](hdr);
+
+		nls->ns_bufn -= hdr->nlmsg_len;
+		nls->ns_bufp += hdr->nlmsg_len;
+		hdr = (struct nlmsghdr *)nls->ns_bufp;
+	}
+
+	/* shift any pending data back to the start of the buffer */
+	if (nls->ns_bufn > 0) {
+		memmove(nls->ns_buf, nls->ns_buf, nls->ns_bufn);
+		nls->ns_bufp = nls->ns_buf;
+	}
+
+	kqread(nls->ns_fd, nls->ns_bufp,
+	       (ssize_t)(sizeof(nls->ns_buf) - nls->ns_bufn),
+	       nldomsg, nls);
+	return KQ_STOP;
+}
+
+static struct nlmsghdr *
+nlsocket_getmsg(nlsocket_t *nls) {
+struct nlmsghdr	*hdr = (struct nlmsghdr *)nls->ns_bufp;
+
+	if (!NLMSG_OK(hdr, (int)nls->ns_bufn))
+		panic("nlsocket_getmsg: data but no message");
+
+	hdr = (struct nlmsghdr *)nls->ns_bufp;
+	nls->ns_bufp += hdr->nlmsg_len;
+	nls->ns_bufn -= hdr->nlmsg_len;
+	return hdr;
+}
+
+struct nlmsghdr *
+nlsocket_recv(nlsocket_t *nls) {
+	if (!nls->ns_bufn) {
+	ssize_t		n;
+
+		n = read(nls->ns_fd, nls->ns_buf, sizeof(nls->ns_buf));
+		if (n < 0)
+			return NULL;
+
+		nls->ns_bufp = nls->ns_buf;
+		nls->ns_bufn = (size_t)n;
+	}
+
+	return nlsocket_getmsg(nls);
 }
 
 int
@@ -173,44 +247,6 @@ struct msghdr	msg;
 		return -1;
 
 	return 0;
-}
-
-static struct nlmsghdr *
-nlsocket_getmsg(nlsocket_t *nls) {
-struct nlmsghdr *hdr = (struct nlmsghdr *)nls->ns_bufp;
-
-	if (!NLMSG_OK(hdr, (int)nls->ns_bufn))
-		panic("nlsocket_getmsg: data but no message");
-
-	hdr = (struct nlmsghdr *)nls->ns_bufp;
-	nls->ns_bufp += hdr->nlmsg_len;
-	nls->ns_bufn -= hdr->nlmsg_len;
-	return hdr;
-}
-
-struct nlmsghdr *
-nlsocket_recv(nlsocket_t *nls) {
-	if (!nls->ns_bufn) {
-	struct iovec	 iov;
-	struct msghdr	 msg;
-	ssize_t		 n;
-
-		iov.iov_base = nls->ns_buf;
-		iov.iov_len = sizeof(nls->ns_buf);
-
-		memset(&msg, 0, sizeof(msg));
-		msg.msg_iov = &iov;
-		msg.msg_iovlen = 1;
-
-		n = recvmsg(nls->ns_fd, &msg, 0);
-		if (n < 0)
-			return NULL;
-
-		nls->ns_bufp = nls->ns_buf;
-		nls->ns_bufn = (size_t)n;
-	}
-
-	return nlsocket_getmsg(nls);
 }
 
 /*
@@ -307,7 +343,7 @@ struct rtnl_link_stats64	 stats;
 
 	for (attrmsg = IFLA_RTA(ifinfo), attrlen = IFLA_PAYLOAD(nlmsg);
 	     RTA_OK(attrmsg, (int) attrlen);
-	     attrmsg = RTA_NEXT(attrmsg, attrlen)) {
+		attrmsg = RTA_NEXT(attrmsg, attrlen)) {
 
 		switch (attrmsg->rta_type) {
 		case IFLA_IFNAME:
@@ -355,7 +391,7 @@ struct netlink_newaddr_data	 msg;
 
 	nlog(NLOG_DEBUG, "RTM_NEWADDR");
 
-        ifamsg = NLMSG_DATA(nlmsg);
+	ifamsg = NLMSG_DATA(nlmsg);
 
 	msg.na_ifindex = ifamsg->ifa_index;
 	msg.na_family = ifamsg->ifa_family;
@@ -372,7 +408,7 @@ struct netlink_newaddr_data	 msg;
 		msg.na_addr = RTA_DATA(attrmsg);
 		msgbus_post(MSG_NETLINK_NEWADDR, &msg);
 		return;
-        }
+	}
 
 	nlog(NLOG_WARNING, "received RTM_NEWADDR without an IFA_ADDRESS");
 }
@@ -387,7 +423,7 @@ struct netlink_deladdr_data	 msg;
 
 	nlog(NLOG_DEBUG, "RTM_DELADDR");
 
-        ifamsg = NLMSG_DATA(nlmsg);
+	ifamsg = NLMSG_DATA(nlmsg);
 
 	msg.da_ifindex = ifamsg->ifa_index;
 	msg.da_family = ifamsg->ifa_family;
@@ -404,37 +440,7 @@ struct netlink_deladdr_data	 msg;
 		msg.da_addr = RTA_DATA(attrmsg);
 		msgbus_post(MSG_NETLINK_DELADDR, &msg);
 		return;
-        }
+	}
 
 	nlog(NLOG_WARNING, "received RTM_DELADDR without an IFA_ADDRESS");
-}
-
-static void
-donlmsg(struct nlmsghdr *hdr) {
-	nlog(NLOG_DEBUG, "nlhdr len=%u type=%u flags=%u seq=%u pid=%u",
-	     (unsigned int) hdr->nlmsg_len,
-	     (unsigned int) hdr->nlmsg_type,
-	     (unsigned int) hdr->nlmsg_flags,
-	     (unsigned int) hdr->nlmsg_seq,
-	     (unsigned int) hdr->nlmsg_pid);
-
-	if (hdr->nlmsg_type < (sizeof(handlers) / sizeof(*handlers)) &&
-	    handlers[hdr->nlmsg_type] != NULL)
-		handlers[hdr->nlmsg_type](hdr);
-}
-
-static kqdisp
-donlread(int fd, void *udata) {
-nlsocket_t	*nls = udata;
-struct nlmsghdr	*nlhdr;
-
-	(void)fd;
-
-	while ((nlhdr = nlsocket_recv(nls)) != NULL)
-		donlmsg(nlhdr);
-
-	if (errno == EAGAIN)
-		return KQ_REARM;
-	else
-		panic("donlpkt failed: %s", strerror(errno));
 }

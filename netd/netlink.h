@@ -44,7 +44,7 @@ typedef struct nlsocket {
 } nlsocket_t;
 
 /* initialise the netlink subsystem */
-int		 nl_setup		(void);
+int nlinit(void);
 
 /* create a new rtnetlink socket */
 nlsocket_t *nullable newmem nlsocket_create(int flags);

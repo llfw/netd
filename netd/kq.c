@@ -330,3 +330,163 @@ struct kqaccept4data	*data = NULL;
 
 	return 0;
 }
+
+/**
+ * kqread()
+ */
+
+struct kqreaddata {
+	kqreadcb nonnull	callback;
+	void *nonnull		buffer;
+	ssize_t			bufsize;
+	void *nullable		udata;
+};
+
+kqdisp
+kqdoread(int fd, void *udata) {
+struct kqreaddata	*data = udata;
+ssize_t			 n = 0;
+
+	assert(fd >= 0);
+	assert(data);
+
+	n = read(fd, data->buffer, (size_t)data->bufsize);
+	if (n == -1) {
+		data->callback(fd, -errno, data->udata);
+		goto done;
+	}
+
+	data->callback(fd, n, data->udata);
+
+done:
+	free(data);
+	return KQ_STOP;
+}
+
+void
+kqread(int fd, void *buf, ssize_t bufsize, kqreadcb handler, void *udata) {
+struct kqreaddata	*data;
+
+	assert(fd >= 0);
+	assert(buf);
+	assert(bufsize > 0);
+	assert(handler);
+
+	/* TODO: call the handler for errors here */
+
+	if ((data = calloc(1, sizeof(*data))) == NULL)
+		panic("kqread: out of memory");
+
+	data->callback = handler;
+	data->buffer = buf;
+	data->bufsize = bufsize;
+	data->udata = udata;
+
+	if (kqonread(fd, kqdoread, data) == -1)
+		panic("kqread: kqonread failed");
+
+	return;
+}
+
+/**
+ * kqrecvmsg()
+ */
+
+struct kqrecvmsgdata {
+	kqrecvmsgcb nonnull	callback;
+	void *nonnull		buffer;
+	ssize_t			bufsize;
+	ssize_t			nbytes;
+	void *nullable		udata;
+};
+
+kqdisp
+kqdorecvmsg(int fd, void *udata) {
+struct kqrecvmsgdata	*data = udata;
+kqdisp			 disp;
+
+	assert(fd >= 0);
+	assert(data);
+
+	nlog(NLOG_DEBUG, "kqdorecvmsg: begin");
+
+	/*
+	 * read data until EAGAIN or MSG_EOR.
+	 */
+	for (;;) {
+	struct msghdr	 msg;
+	struct iovec	 iov;
+	ssize_t		 n;
+
+		nlog(NLOG_DEBUG, "kqdorecvmsg: in loop");
+
+		assert(data->bufsize > data->nbytes);
+
+		iov.iov_base = (char *)data->buffer + data->nbytes;
+		iov.iov_len = (size_t)data->bufsize - (size_t)data->nbytes;
+
+		memset(&msg, 0, sizeof(msg));
+		msg.msg_iov = &iov;
+		msg.msg_iovlen = 1;
+
+		n = recvmsg(fd, &msg, 0);
+		nlog(NLOG_DEBUG, "kqdorecvmsg: read %d errno=%s",
+		     (int)n, strerror(errno));
+
+		if (n == -1) {
+			if (errno == EAGAIN)
+				return KQ_REARM;
+
+			disp = data->callback(fd, -errno, 0, data->udata);
+			break;
+		}
+
+		data->nbytes += n;
+		if (msg.msg_flags & MSG_EOR) {
+			nlog(NLOG_DEBUG, "kqdorecvmsg: got MSG_EOR");
+			disp = data->callback(fd, data->nbytes, msg.msg_flags,
+					      data->udata);
+			break;
+		}
+
+		if (data->nbytes == data->bufsize) {
+			disp = data->callback(fd, -ENOSPC, 0, data->udata);
+			break;
+		}
+	}
+
+	nlog(NLOG_DEBUG, "kqdorecvmsg: done, disp=%d", (int) disp);
+
+	if (disp == KQ_STOP)
+		free(data);
+	else
+		data->nbytes = 0;
+
+	return disp;
+}
+
+void
+kqrecvmsg(int fd, void *buf, ssize_t bufsize, kqrecvmsgcb handler,
+	  void *udata) {
+struct kqrecvmsgdata	*data;
+
+	assert(fd >= 0);
+	assert(buf);
+	assert(bufsize > 0);
+	assert(handler);
+
+	/* TODO: call the handler for errors here */
+
+	if ((data = calloc(1, sizeof(*data))) == NULL)
+		panic("kqrecvmsg: out of memory");
+
+	data->callback = handler;
+	data->buffer = buf;
+	data->bufsize = bufsize;
+	data->udata = udata;
+
+	if (kqonread(fd, kqdorecvmsg, data) == -1)
+		panic("kqrecvmsg: kqonread failed");
+
+	return;
+}

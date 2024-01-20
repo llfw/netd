@@ -54,10 +54,12 @@ static chandler_t chandlers[] = {
 	{ CTL_CMD_LIST_INTERFACES, h_list_interfaces },
 };
 
-static kqdisp	readclient	(int fd, void *udata);
+static kqdisp	readclient	(int fd, ssize_t, int,
+				 void *nullable udata);
 static kqdisp	acceptclient	(int, int, struct sockaddr * nullable,
 				 socklen_t, void *nullable);
-static void	clientcmd	(ctlclient_t *, nvlist_t *cmd);
+static void	clientcmd	(ctlclient_t *nonnull client,
+				 nvlist_t *nonnull cmd);
 
 int
 ctl_setup(void) {
@@ -124,8 +126,8 @@ ctlclient_t	*client = NULL;
 
 	client->cc_fd = fd;
 
-	if (kqonread(client->cc_fd, readclient, client) == -1)
-		goto err;
+	kqrecvmsg(client->cc_fd, client->cc_buf, sizeof(client->cc_buf),
+		  readclient, client);
 
 	nlog(NLOG_DEBUG, "acceptclient: new client fd=%d", client->cc_fd);
 	return KQ_REARM;
@@ -143,39 +145,18 @@ err:
  * read a command from the given client and execute it.
  */
 static kqdisp
-readclient(int fd, void *udata) {
+readclient(int fd, ssize_t nbytes, int flags, void *udata) {
 ctlclient_t	*client = udata;
 int		 i;
-ssize_t		 n;
-struct msghdr	 mhdr;
-struct iovec	 iov;
 nvlist_t	*cmd = NULL;
 
 	(void)fd;
+	assert(flags & MSG_EOR);
+	assert(udata);
 
 	nlog(NLOG_DEBUG, "readclient: fd=%d", client->cc_fd);
 
-	iov.iov_base = client->cc_buf;
-	iov.iov_len = sizeof(client->cc_buf);
-
-	memset(&mhdr, 0, sizeof(mhdr));
-	mhdr.msg_iov = &iov;
-	mhdr.msg_iovlen = 1;
-
-	n = recvmsg(client->cc_fd, &mhdr, 0);
-	if (n == -1) {
-		nlog(NLOG_DEBUG, "readclient: recvmsg: %s", strerror(errno));
-		goto err;
-	}
-
-	if (!(mhdr.msg_flags & MSG_EOR)) {
-		nlog(NLOG_DEBUG, "readclient: msg too long (read %zd)", n);
-		goto err;
-	}
-
-	nlog(NLOG_DEBUG, "readclient: got msg");
-
-	cmd = nvlist_unpack(client->cc_buf, n, 0);
+	cmd = nvlist_unpack(client->cc_buf, nbytes, 0);
 	if (cmd == NULL) {
 		nlog(NLOG_DEBUG, "readclient: nvlist_unpack: %s",
 		     strerror(errno));

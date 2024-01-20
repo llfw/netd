@@ -70,7 +70,7 @@ main(int argc, char **argv) {
 	}
 
 	if (msgbus_init() == -1) {
-		nlog(NLOG_FATAL, "msgbus init failed");
+		nlog(NLOG_FATAL, "msgbus init failed: %s", strerror(errno));
 		return 1;
 	}
 
@@ -79,17 +79,17 @@ main(int argc, char **argv) {
 	 * netlink's boot-time newlink/newaddr messages.
 	 */
 	if (state_init() == -1) {
-		nlog(NLOG_FATAL, "state init failed");
+		nlog(NLOG_FATAL, "state init failed: %s", strerror(errno));
 		return 1;
 	}
 
-	if (nl_setup() == -1) {
-		nlog(NLOG_FATAL, "netlink setup failed");
+	if (nlinit() == -1) {
+		nlog(NLOG_FATAL, "netlink init failed: %s", strerror(errno));
 		return 1;
 	}
 
 	if (ctl_setup() == -1) {
-		nlog(NLOG_FATAL, "ctl setup failed");
+		nlog(NLOG_FATAL, "ctl init failed: %s", strerror(errno));
 		return 1;
 	}
 
