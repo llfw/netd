@@ -6,7 +6,7 @@ TOPDIR		:= ${.PARSEDIR:tA:H}
 
 CC		= cc
 WARNFLAGS	= -W -Wall -Wextra -Wmissing-variable-declarations \
-		  -Wshorten-64-to-32 -Wsign-conversion
+		  -Wshorten-64-to-32 -Wsign-conversion -Wmissing-prototypes
 CPPFLAGS	= -I. -I${TOPDIR}/include 
 CFLAGS		= -std=c17 -pedantic -O0 -g -fPIE \
 		  -fstack-protector-strong ${WARNFLAGS}
