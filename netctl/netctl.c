@@ -40,25 +40,84 @@
 
 int	netd_connect(void);
 
+typedef int (*cmdhandler)(int server, int argc, char *nullable *nonnull argv);
+
 int	c_list_interfaces(int, int, char **);
 
-static struct netcmd {
-	char const	 *nc_name;
-	int		(*nc_handler)(int, int, char **);
-} netcmds[] = {
-	{ "list-interfaces",	c_list_interfaces },
+typedef struct command {
+	char const *nullable		cm_name;
+	cmdhandler nullable		cm_handler;
+	struct command *nullable	cm_subs;
+	char const *nullable		cm_description;
+} command_t;
+
+static command_t intf_cmds[] = {
+	{ "list", c_list_interfaces, NULL, "list interfaces" },
+	{ NULL, NULL, NULL, NULL }
+};
+
+static command_t root_cmds[] = {
+	{ "interface", NULL, intf_cmds, "configure layer 2 interfaces" },
+	{ NULL, NULL, NULL, NULL }
 };
 
 static nvlist_t	*send_simple_command(int server, char const *command);
 
 static void
-usage(void) {
+usage(command_t *nonnull cmds) {
+	(void)cmds;
 	fprintf(stderr, "usage: %s [--libxo=...] <command>\n", getprogname());
+	fprintf(stderr, "\n");
+	fprintf(stderr, "commands:\n");
+	fprintf(stderr, "\n");
+
+	for (command_t *cmd = cmds; cmd->cm_name; ++cmd)
+		fprintf(stderr, "  %-20s %s\n", cmd->cm_name,
+			cmd->cm_description);
+}
+
+static command_t *nullable
+find_command(command_t *nonnull root, int *nonnull argc,
+	     char *nullable *nonnull *nonnull argv) {
+
+	assert(root);
+	assert((*argv)[0]);
+
+	for (command_t *cmd = root; cmd->cm_name; cmd++) {
+		if (strcmp(cmd->cm_name, (*argv)[0]))
+			continue;
+
+		--(*argc);
+		++(*argv);
+
+		if (cmd->cm_handler)
+			return cmd;
+
+		if (!cmd->cm_subs) {
+			fprintf(stderr, "%s: unknown command\n",
+				(*argv)[0]);
+			usage(cmd);
+			return NULL;
+		}
+
+		if (!(*argv)[0]) {
+			fprintf(stderr, "incomplete command\n");
+			usage(cmd->cm_subs);
+			return NULL;
+		}
+
+		return find_command(cmd->cm_subs, argc, argv);
+	}
+
+	fprintf(stderr, "%s: unknown command\n", (*argv)[0]);
+	usage(root);
+	return NULL;
 }
 
 int
 main(int argc, char **argv) {
-int	server;
+int			server;
+command_t *nullable	cmd;
 
 	setprogname(argv[0]);
 
@@ -70,27 +129,17 @@ int	server;
 	++argv;
 
 	if (!argc) {
-		usage();
+		usage(root_cmds);
 		return 1;
 	}
 
-	for (size_t i = 0; i < sizeof(netcmds) / sizeof(*netcmds); ++i) {
-		if (strcmp(argv[0], netcmds[i].nc_name))
-			continue;
+	if ((cmd = find_command(root_cmds, &argc, &argv)) == NULL)
+		return 1;
 
-		--argc;
-		++argv;
+	if ((server = netd_connect()) == -1)
+		return 1;
 
-		if ((server = netd_connect()) == -1)
-			return 1;
-
-		return netcmds[i].nc_handler(server, argc, argv);
-	}
-
-	fprintf(stderr, "%s: unrecognised command: %s\n",
-		getprogname(), argv[0]);
-
-	return 0;
+	return cmd->cm_handler(server, argc, argv);
 }
 
 int

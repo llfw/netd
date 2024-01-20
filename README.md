@@ -39,15 +39,13 @@ Start `netd`.
 ## Example
 
 ```
-# netctl list-interfaces
-NAME
-wg0
-tap0
-bridge0
-alc0
-lo0
-ix1
-ix0
+# netctl interface list
+NAME            OPER      TX      RX
+wg0             UP   9.1Mb/s 275kb/s
+bridge0         UP    11Mb/s  45Mb/s
+lo0             UP    295b/s  295b/s
+ix1             DOWN    0b/s    0b/s
+ix0             UP    11Mb/s  46Mb/s
 ```
 
 ## Programmatic output
