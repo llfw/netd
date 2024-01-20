@@ -29,6 +29,8 @@
 
 #include	<stdarg.h>
 
+#include	"defs.h"
+
 typedef enum {
 	NLOG_DEBUG,
 	NLOG_INFO,
@@ -38,7 +40,7 @@ typedef enum {
 } loglevel_t;
 
 /* log a message at the given level */
-void		nlog(loglevel_t, char const *message, ...);
+void		nlog(loglevel_t, char const *message, ...) printf_format(2, 3);
 void		vnlog(loglevel_t, char const *message, va_list);
 
 /* get or set the log destination */

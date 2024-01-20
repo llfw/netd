@@ -179,7 +179,7 @@ nvlist_t	*cmd = NULL;
 	}
 
 	if (!(mhdr.msg_flags & MSG_EOR)) {
-		nlog(NLOG_DEBUG, "readclient: msg too long (read %d)", n);
+		nlog(NLOG_DEBUG, "readclient: msg too long (read %zd)", n);
 		goto err;
 	}
 
@@ -315,7 +315,7 @@ int		  i;
 					  intf->if_txrate);
 
 			if ((i = nvlist_error(nvl)) != 0) {
-				nlog(NLOG_DEBUG, "h_list_interfaces: nvl: ",
+				nlog(NLOG_DEBUG, "h_list_interfaces: nvl: %s",
 				     strerror(i));
 				goto err;
 			}
