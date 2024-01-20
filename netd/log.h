@@ -40,8 +40,9 @@ typedef enum {
 } loglevel_t;
 
 /* log a message at the given level */
-void		nlog(loglevel_t, char const *message, ...) printf_format(2, 3);
-void		vnlog(loglevel_t, char const *message, va_list);
+void		nlog(loglevel_t, char const *nonnull message, ...)
+			printf_format(2, 3);
+void		vnlog(loglevel_t, char const *nonnull message, va_list);
 
 /* get or set the log destination */
 #define	NLOG_SYSLOG	0x1u

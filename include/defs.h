@@ -25,4 +25,13 @@
 
 #define printf_format(fmt, args) __attribute__((format(printf, fmt, args)))
 
+#ifdef __clang__
+# define nonnull _Nonnull
+# define nullable _Nullable
+# pragma clang diagnostic ignored "-Wnullability-extension"
+#else
+# define notnull
+# define nullable
+#endif
+
 #endif	/* !NETD_DEFS_H_INCLUDED */

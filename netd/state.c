@@ -1,17 +1,17 @@
 /*
  * This is free and unencumbered software released into the public domain.
- * 
+ *
  * Anyone is free to copy, modify, publish, use, compile, sell, or distribute
  * this software, either in source code form or as a compiled binary, for any
  * purpose, commercial or non-commercial, and by any means.
- * 
+ *
  * In jurisdictions that recognize copyright laws, the author or authors of
  * this software dedicate any and all copyright interest in the software to the
  * public domain. We make this dedication for the benefit of the public at
  * large and to the detriment of our heirs and successors. We intend this
  * dedication to be an overt act of relinquishment in perpetuity of all present
  * and future rights to this software under copyright law.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
@@ -39,15 +39,14 @@
 #include	"netd.h"
 #include	"kq.h"
 
-struct network_head networks = SLIST_HEAD_INITIALIZER(networks);
-
-struct interface_head interfaces = SLIST_HEAD_INITIALIZER(interfaces);
+network_t *networks = NULL;
+interface_t *interfaces = NULL;
 
 /* netlink event handlers */
-static void	hdl_newlink(msg_id_t, void *);
-static void	hdl_dellink(msg_id_t, void *);
-static void	hdl_newaddr(msg_id_t, void *);
-static void	hdl_deladdr(msg_id_t, void *);
+static void	hdl_newlink(msg_id_t, void *nonnull);
+static void	hdl_dellink(msg_id_t, void *nonnull);
+static void	hdl_newaddr(msg_id_t, void *nonnull);
+static void	hdl_deladdr(msg_id_t, void *nonnull);
 
 /* stats update timer */
 static kqdisp	stats(void *);
@@ -71,7 +70,7 @@ struct network *
 find_network(char const *name) {
 struct network	*network;
 
-	SLIST_FOREACH(network, &networks, net_entry) {
+	for (network = networks; network; network = network->net_next) {
 		if (strcmp(name, network->net_name) == 0)
 			return network;
 	}
@@ -102,7 +101,7 @@ struct interface *
 find_interface_byname(char const *name) {
 struct interface	*intf;
 
-	SLIST_FOREACH(intf, &interfaces, if_entry) {
+	for (intf = interfaces; intf; intf = intf->if_next) {
 		if (strcmp(name, intf->if_name) == 0)
 			return intf;
 	}
@@ -115,7 +114,7 @@ struct interface *
 find_interface_byindex(unsigned int ifindex) {
 struct interface	*intf;
 
-	SLIST_FOREACH(intf, &interfaces, if_entry) {
+	for (intf = interfaces; intf; intf = intf->if_next) {
 		if (intf->if_index == ifindex)
 			return intf;
 	}
@@ -132,7 +131,7 @@ struct interface		*intf;
 	(void)msgid;
 
 	/* check for duplicate interfaces */
-	SLIST_FOREACH(intf, &interfaces, if_entry) {
+	for (intf = interfaces; intf; intf = intf->if_next) {
 		if (strcmp(intf->if_name, msg->nl_ifname) == 0 ||
 		    intf->if_index == msg->nl_ifindex) {
 			return;
@@ -157,7 +156,8 @@ struct interface		*intf;
 	nlog(NLOG_INFO, "%s<%d>: new interface",
 	     intf->if_name, intf->if_index);
 
-	SLIST_INSERT_HEAD(&interfaces, intf, if_entry);
+	intf->if_next = interfaces;
+	interfaces = intf;
 }
 
 void
@@ -173,7 +173,15 @@ interface_t			*intf;
 	nlog(NLOG_INFO, "%s<%d>: interface destroyed",
 	     intf->if_name, intf->if_index);
 
-	SLIST_REMOVE(&interfaces, intf, interface, if_entry);
+	for (interface_t **node = &interfaces;
+	     *node;
+	     node = &(*node)->if_next) {
+		if (*node == intf) {
+			*node = (*node)->if_next;
+			free(intf);
+			return;
+		}
+	}
 }
 
 ifaddr_t *
@@ -244,7 +252,8 @@ ifaddr_t			*addr;
 	nlog(NLOG_INFO, "%s<%d>: address added",
 	     intf->if_name, intf->if_index);
 
-	SLIST_INSERT_HEAD(&intf->if_addrs, addr, ifa_entry);
+	addr->ifa_next = intf->if_addrs;
+	intf->if_addrs = addr;
 }
 
 void

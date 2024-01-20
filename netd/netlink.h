@@ -32,31 +32,33 @@
 #include	<netlink/route/interface.h>
 
 #include	"msgbus.h"
+#include	"defs.h"
 
 #define	NLSOCKET_BUFSIZE	32768
 
 typedef struct nlsocket {
-	char	 ns_buf[NLSOCKET_BUFSIZE];
-	int	 ns_fd;
-	char	*ns_bufp;
-	size_t	 ns_bufn;
+	char		ns_buf[NLSOCKET_BUFSIZE];
+	int		ns_fd;
+	char * nonnull	ns_bufp;
+	size_t		ns_bufn;
 } nlsocket_t;
 
 /* initialise the netlink subsystem */
 int		 nl_setup		(void);
 
 /* create a new rtnetlink socket */
-nlsocket_t 	*nlsocket_create	(int flags);
+nlsocket_t *nullable nlsocket_create(int flags);
 
 /* send a message on a netlink socket */
-int		 nlsocket_send		(nlsocket_t *, struct nlmsghdr *msg,
-					 size_t msglen);
+int nlsocket_send(nlsocket_t *nonnull,
+		  struct nlmsghdr *nonnull msg,
+		  size_t msglen);
 
 /* receive a message on a netlink socket */
-struct nlmsghdr	*nlsocket_recv		(nlsocket_t *);
+struct nlmsghdr	*nullable nlsocket_recv(nlsocket_t *nonnull);
 
 /* close a netlink socket */
-void		 nlsocket_close		(nlsocket_t *);
+void nlsocket_close(nlsocket_t *nonnull);
 
 /*
  * msgbus events
@@ -65,9 +67,9 @@ void		 nlsocket_close		(nlsocket_t *);
 /* interface created */
 #define	MSG_NETLINK_NEWLINK	MSG_ID(MSG_C_NETLINK, 1)
 struct netlink_newlink_data {
-	unsigned			 nl_ifindex;
-	char const			*nl_ifname;
-	struct rtnl_link_stats64	*nl_stats;
+	unsigned				nl_ifindex;
+	char const * nonnull			nl_ifname;
+	struct rtnl_link_stats64 * nonnull	nl_stats;
 };
 
 /* interface destroyed */
@@ -79,19 +81,19 @@ struct netlink_dellink_data {
 /* interface address created */
 #define	MSG_NETLINK_NEWADDR	MSG_ID(MSG_C_NETLINK, 3)
 struct netlink_newaddr_data {
-	unsigned	 na_ifindex;
-	int		 na_family;
-	int		 na_plen;
-	void		*na_addr;
+	unsigned	na_ifindex;
+	int		na_family;
+	int		na_plen;
+	void * nonnull	na_addr;
 };
 
 /* interface address removed */
 #define	MSG_NETLINK_DELADDR	MSG_ID(MSG_C_NETLINK, 4)
 struct netlink_deladdr_data {
-	unsigned	 da_ifindex;
-	int		 da_family;
-	int		 da_plen;
-	void		*da_addr;
+	unsigned	da_ifindex;
+	int		da_family;
+	int		da_plen;
+	void * nonnull	da_addr;
 };
 
 #endif	/* !NETD_NETLINK_H_INCLUDED */

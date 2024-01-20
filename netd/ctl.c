@@ -292,7 +292,7 @@ int		  i;
 		goto err;
 
 	/* work out how many interfaces we need to allocate */
-	SLIST_FOREACH(intf, &interfaces, if_entry)
+	for (intf = interfaces; intf; intf = intf->if_next)
 		++nintfs;
 
 	nlog(NLOG_DEBUG, "h_list_interfaces: nintfs=%u",
@@ -302,7 +302,7 @@ int		  i;
 		nvintfs = calloc(nintfs, sizeof(nvlist_t *));
 
 		/* add each interface to the response */
-		SLIST_FOREACH(intf, &interfaces, if_entry) {
+		for (intf = interfaces; intf; intf = intf->if_next) {
 		nvlist_t	*nvl = nvlist_create(0);
 
 			nvlist_add_string(nvl, CTL_PARM_INTERFACE_NAME,

@@ -32,6 +32,7 @@
 #include	<netinet/if_ether.h>
 
 #include	"db.h"
+#include	"defs.h"
 
 /*
  * manage running system state (mainly interfaces).
@@ -40,18 +41,18 @@
 int	state_init(void);
 
 typedef struct network {
-	SLIST_ENTRY(network)	 net_entry;
-	char const		*net_name;
+	struct network *nullable	net_next;
+	char const *nonnull		net_name;
 } network_t;
 
-extern SLIST_HEAD(network_head, network) networks;
+extern network_t *nullable networks;
 
-network_t	*find_network(char const *name);
-network_t	*create_network(char const *name);
+network_t *nullable find_network(char const *nonnull name);
+network_t *nullable create_network(char const *nonnull name);
 
 /* an address assigned to an interface */
 typedef struct ifaddr {
-	SLIST_ENTRY(ifaddr)	ifa_entry;
+	struct ifaddr *nullable	ifa_next;
 	int			ifa_family;
 	union {
 		struct ether_addr	ifa_ether;
@@ -61,9 +62,7 @@ typedef struct ifaddr {
 	int			ifa_plen;	/* prefix length */
 } ifaddr_t;
 
-typedef SLIST_HEAD(ifaddr_list, ifaddr) ifaddr_list_t;
-
-ifaddr_t	*ifaddr_new(int family, void *addr, int plen);
+ifaddr_t *nullable ifaddr_new(int family, void *nonnull addr, int plen);
 
 /*
  * an interface.  this represents an interface which is active on the system
@@ -76,32 +75,34 @@ ifaddr_t	*ifaddr_new(int family, void *addr, int plen);
 #define	INTF_STATE_HISTORY	6	/* 6 * 5 = 30 seconds */
 
 typedef struct interface {
-	SLIST_ENTRY(interface)	 if_entry;
-	struct uuid		 if_uuid;	/* uuid in persistent store */
-	char const		*if_name;
-	unsigned int		 if_index;
-	ifaddr_list_t		 if_addrs;
-	struct network		*if_network;	/* may be NULL */
-	pinterface_t		*if_pintf;	/* persistent config */
+	struct interface *nullable	if_next;
+	struct uuid			if_uuid;
+	char const *nonnull		if_name;
+	unsigned int			if_index;
+	ifaddr_t *nullable		if_addrs;
+	network_t *nullable		if_network;
+	pinterface_t *nullable		if_pintf;	/* persistent config */
 	/* stats history */
-	uint64_t		 if_obytes[INTF_STATE_HISTORY];
-	uint64_t		 if_txrate; /* bps */
-	uint64_t		 if_ibytes[INTF_STATE_HISTORY];
-	uint64_t		 if_rxrate; /* bps */
+	uint64_t			if_obytes[INTF_STATE_HISTORY];
+	uint64_t			if_txrate; /* bps */
+	uint64_t			if_ibytes[INTF_STATE_HISTORY];
+	uint64_t			if_rxrate; /* bps */
 } interface_t;
 
-extern SLIST_HEAD(interface_head, interface) interfaces;
+extern interface_t *nullable interfaces;
 
 /* find an existing interface */
-interface_t	*find_interface_byname(char const *name);
-interface_t	*find_interface_byindex(unsigned int ifindex);
+interface_t *nullable find_interface_byname(char const *nonnull name);
+interface_t *nullable find_interface_byindex(unsigned int ifindex);
 
 /*
  * inform state that something changed with an interface.
  */
+#if 0
 interface_t	*interface_created(char const *name,
 				   unsigned int ifindex);
 void		 interface_destroyed(interface_t *);
 void		 interface_address_added(interface_t *, ifaddr_t *);
+#endif
 
 #endif	/* !NETD_STATE_H_INCLUDED */

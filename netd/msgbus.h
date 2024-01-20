@@ -38,15 +38,15 @@ typedef uint32_t msg_id_t;
 #define	MSG_C_NETLINK		0x1
 #define	MSG_C_STATE		0x2
 
-typedef void (*msgbus_handler_t)(msg_id_t, void *);
+typedef void (*msgbus_handler_t)(msg_id_t, void * nullable);
 
 /* initialise the msgbus */
 int	msgbus_init(void);
 
 /* post a message to the bus */
-void	msgbus_post(msg_id_t, void *);
+void	msgbus_post(msg_id_t, void * nullable);
 
 /* subscribe to a message type */
-void	msgbus_sub(msg_id_t, msgbus_handler_t);
+void	msgbus_sub(msg_id_t, msgbus_handler_t nonnull);
 
 #endif	/* !NETD_MSGBUS_H_INCLUDED */

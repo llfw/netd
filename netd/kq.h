@@ -28,6 +28,8 @@
  * register handlers for various events.
  */
 
+#include	"defs.h"
+
 /*
  * the current time.  this is updated every time the event loop runs, before
  * events are dispatched.
@@ -59,8 +61,9 @@ int		 kqclose	(int fd);
  * register for read events on an fd.  the handler can return KQ_REARM to
  * continue listening for events, or KQ_STOP to remove the registration.
  */
-typedef kqdisp (*kqreadcb) (int fd, void *udata);
-int		 kqread		(int fd, kqreadcb reader, void *udata);
+typedef kqdisp (*kqreadcb) (int fd, void *nullable udata);
+int		 kqread		(int fd, kqreadcb nonnull reader,
+				 void *nullable udata);
 
 /*
  * register a timer event that fires every 'when' units, where units is one of
@@ -69,8 +72,9 @@ int		 kqread		(int fd, kqreadcb reader, void *udata);
  * regardless of the disposition return.
  */
 
-typedef kqdisp (*kqtimercb) (void *udata);
+typedef kqdisp (*kqtimercb) (void *nullable udata);
 int		kqtimer		(int when, unsigned unit,
-				 kqtimercb handler, void *udata);
+				 kqtimercb nonnull handler,
+				 void *nullable udata);
 
 #endif	/* !NETD_KQ_H_INCLUDED */
