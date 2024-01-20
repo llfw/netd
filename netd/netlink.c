@@ -302,13 +302,10 @@ struct rtattr			*attrmsg = NULL;
 size_t				 attrlen;
 struct netlink_newlink_data	 msg;
 
-	nlog(NLOG_DEBUG, "RTM_NEWLINK");
-
 	for (attrmsg = IFLA_RTA(ifinfo), attrlen = IFLA_PAYLOAD(nlmsg);
 	     RTA_OK(attrmsg, (int) attrlen);
 	     attrmsg = RTA_NEXT(attrmsg, attrlen)) {
 
-		nlog(NLOG_DEBUG, "got attr: %d", (int) attrmsg->rta_type);
 		switch (attrmsg->rta_type) {
 		case IFLA_IFNAME:
 			msg.nl_ifname = RTA_DATA(attrmsg);
@@ -324,6 +321,10 @@ struct netlink_newlink_data	 msg;
 		nlog(NLOG_ERROR, "RTM_NEWLINK: no interface name?");
 		return;
 	}
+
+	nlog(NLOG_DEBUG, "RTM_NEWLINK: %s<%d> nlmsg_flags=0x%x ifi_flags=0x%x ifi_change=%x",
+	     msg.nl_ifname, ifinfo->ifi_index, nlmsg->nlmsg_flags,
+	     ifinfo->ifi_flags, ifinfo->ifi_change);
 
 	msg.nl_ifindex = (unsigned)ifinfo->ifi_index;
 	msgbus_post(MSG_NETLINK_NEWLINK, &msg);
@@ -405,13 +406,14 @@ struct netlink_deladdr_data	 msg;
 
 static void
 donlmsg(struct nlmsghdr *hdr) {
-	nlog(NLOG_DEBUG, "nlhdr len   = %u", (unsigned int) hdr->nlmsg_len);
-	nlog(NLOG_DEBUG, "nlhdr type  = %u", (unsigned int) hdr->nlmsg_type);
-	nlog(NLOG_DEBUG, "nlhdr flags = %u", (unsigned int) hdr->nlmsg_flags);
-	nlog(NLOG_DEBUG, "nlhdr seq   = %u", (unsigned int) hdr->nlmsg_seq);
-	nlog(NLOG_DEBUG, "nlhdr pid   = %u", (unsigned int) hdr->nlmsg_pid);
+	nlog(NLOG_DEBUG, "nlhdr len=%u type=%u flags=%u seq=%u pid=%u",
+	     (unsigned int) hdr->nlmsg_len,
+	     (unsigned int) hdr->nlmsg_type,
+	     (unsigned int) hdr->nlmsg_flags,
+	     (unsigned int) hdr->nlmsg_seq,
+	     (unsigned int) hdr->nlmsg_pid);
 
-	if (hdr->nlmsg_type < ASIZE(handlers) &&
+	if (hdr->nlmsg_type < (sizeof(handlers) / sizeof(*handlers)) &&
 	    handlers[hdr->nlmsg_type] != NULL)
 		handlers[hdr->nlmsg_type](hdr);
 }
