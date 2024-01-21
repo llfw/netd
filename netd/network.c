@@ -74,7 +74,7 @@ netdelete(network_t *nonnull net) {
 		if (*node == net) {
 			*node = (*node)->net_next;
 			free(net);
-			return 0;
+			return;
 		}
 	}
 

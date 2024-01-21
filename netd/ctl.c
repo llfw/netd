@@ -54,10 +54,20 @@ typedef struct chandler {
 	void		(*ch_handler)(ctlclient_t *client, nvlist_t *cmd);
 } chandler_t;
 
-static void h_list_interfaces(ctlclient_t *, nvlist_t *);
+/*
+ * command handlers
+ */
+
+static void h_intf_list(ctlclient_t *, nvlist_t *);
+static void h_net_create(ctlclient_t *, nvlist_t *);
+static void h_net_delete(ctlclient_t *, nvlist_t *);
+static void h_net_list(ctlclient_t *, nvlist_t *);
 
 static chandler_t chandlers[] = {
-	{ CC_GETIFS, h_list_interfaces },
+	{ CC_GETIFS,	h_intf_list	},
+	{ CC_GETNETS,	h_net_list	},
+	{ CC_NEWNET,	h_net_create	},
+	{ CC_DELNET,	h_net_delete	},
 };
 
 static kqdisp	readclient	(int fd, ssize_t, int,
@@ -216,6 +226,9 @@ char const	*cmdname;
 	/* TODO: unknown command, send an error */
 }
 
+/*
+ * send the given response to the client.  the response will be freed.
+ */
 static void
 send_response(ctlclient_t *client, nvlist_t *resp) {
 char		*rbuf = NULL;
@@ -252,8 +265,78 @@ int		 i;
 		     strerror(errno));
 }
 
+/*
+ * send a success response to the client, with optional STATUS_INFO.
+ */
 static void
-h_list_interfaces(ctlclient_t *client, nvlist_t *cmd) {
+send_success(ctlclient_t *nonnull client, char const *nullable info) {
+nvlist_t	*resp = NULL;
+
+	assert(client);
+
+	if ((resp = nvlist_create(0)) == NULL)
+		goto err;
+
+	nvlist_add_string(resp, CP_STATUS, CV_STATUS_SUCCESS);
+	if (info)
+		nvlist_add_string(resp, CP_STATUS_INFO, info);
+
+	send_response(client, resp);
+
+err:
+	if (resp)
+		nvlist_destroy(resp);
+}
+
+/*
+ * send an error response to the client.
+ */
+static void
+send_error(ctlclient_t *nonnull client, char const *nonnull error) {
+nvlist_t	*resp = NULL;
+
+	assert(client);
+	assert(error);
+
+	if ((resp = nvlist_create(0)) == NULL)
+		goto err;
+
+	nvlist_add_string(resp, CP_STATUS, CV_STATUS_ERROR);
+	nvlist_add_string(resp, CP_STATUS_INFO, error);
+
+	send_response(client, resp);
+
+err:
+	if (resp)
+		nvlist_destroy(resp);
+}
+
+/*
+ * send a syserr response to the client.
+ */
+static void
+send_syserr(ctlclient_t *nonnull client, char const *nonnull syserr) {
+nvlist_t	*resp = NULL;
+
+	assert(client);
+	assert(syserr);
+
+	if ((resp = nvlist_create(0)) == NULL)
+		goto err;
+
+	nvlist_add_string(resp, CP_STATUS, CV_STATUS_ERROR);
+	nvlist_add_string(resp, CP_STATUS_INFO, CE_SYSERR);
+	nvlist_add_string(resp, CP_STATUS_SYSERR, syserr);
+
+	send_response(client, resp);
+
+err:
+	if (resp)
+		nvlist_destroy(resp);
+}
+
+static void
+h_intf_list(ctlclient_t *client, nvlist_t *cmd) {
 size_t		  nintfs = 0, n = 0;
 interface_t	 *intf = NULL;
 nvlist_t const	**nvintfs = NULL;
@@ -270,7 +353,7 @@ int		  i;
 	for (intf = interfaces; intf; intf = intf->if_next)
 		++nintfs;
 
-	nlog(NLOG_DEBUG, "h_list_interfaces: nintfs=%u",
+	nlog(NLOG_DEBUG, "h_intf_list: nintfs=%u",
 	     (unsigned) nintfs);
 
 	if (nintfs) {
@@ -326,7 +409,7 @@ int		  i;
 			nvlist_add_number(nvl, CP_IFACE_ADMIN, adminstate);
 
 			if ((i = nvlist_error(nvl)) != 0) {
-				nlog(NLOG_DEBUG, "h_list_interfaces: nvl: %s",
+				nlog(NLOG_DEBUG, "h_intf_list: nvl: %s",
 				     strerror(i));
 				goto err;
 			}
@@ -340,7 +423,7 @@ int		  i;
 	}
 
 	if ((i = nvlist_error(resp)) != 0) {
-		nlog(NLOG_DEBUG, "h_list_interfaces: resp: %s", strerror(i));
+		nlog(NLOG_DEBUG, "h_intf_list: resp: %s", strerror(i));
 		goto err;
 	}
 
@@ -352,4 +435,85 @@ err:
 
 	if (resp)
 		nvlist_destroy(resp);
+}
+
+static void
+h_net_list(ctlclient_t *client, nvlist_t *cmd) {
+network_t	 *net = NULL;
+nvlist_t	 *resp = NULL;
+int		  i;
+
+	(void)cmd;
+
+	if ((resp = nvlist_create(0)) == NULL)
+		goto err;
+
+	for (net = networks; net; net = net->net_next) {
+	nvlist_t	*nvnet = nvlist_create(0);
+
+		nvlist_add_string(nvnet, CP_NET_NAME, net->net_name);
+
+		if ((i = nvlist_error(nvnet)) != 0) {
+			nlog(NLOG_DEBUG, "h_net_list: nvl: %s",
+			     strerror(i));
+			goto err;
+		}
+
+		nvlist_append_nvlist_array(resp, CP_NETS, nvnet);
+	}
+
+
+	if ((i = nvlist_error(resp)) != 0) {
+		nlog(NLOG_DEBUG, "h_net_list: resp: %s", strerror(i));
+		goto err;
+	}
+
+	send_response(client, resp);
+
+err:
+	if (resp)
+		nvlist_destroy(resp);
+}
+
+static void
+h_net_create(ctlclient_t *client, nvlist_t *cmd) {
+char const	*netname = NULL;
+
+	if (!nvlist_exists_string(cmd, CP_NEWNET_NAME)) {
+		send_error(client, CE_PROTO);
+		return;
+	}
+
+	netname = nvlist_get_string(cmd, CP_NEWNET_NAME);
+	if (strlen(netname) > CN_MAXNETNAM) {
+		send_error(client, CE_NETNMLN);
+		return;
+	}
+
+	if (netcreate(netname) == NULL)
+		send_syserr(client, strerror(errno));
+	else
+		send_success(client, NULL);
+}
+
+
+static void
+h_net_delete(ctlclient_t *client, nvlist_t *cmd) {
+char const	*netname = NULL;
+network_t	*net = NULL;
+
+	if (!nvlist_exists_string(cmd, CP_DELNET_NAME)) {
+		send_error(client, CE_PROTO);
+		return;
+	}
+
+	netname = nvlist_get_string(cmd, CP_NEWNET_NAME);
+
+	if ((net = netfind(netname)) == NULL) {
+		send_error(client, CE_NETNX);
+		return;
+	}
+
+	netdelete(net);
+	send_success(client, NULL);
 }

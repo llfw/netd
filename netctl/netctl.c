@@ -42,7 +42,10 @@ int	netd_connect(void);
 
 typedef int (*cmdhandler)(int server, int argc, char *nullable *nonnull argv);
 
-int	c_list_interfaces(int, int, char **);
+static int	c_intf_list(int, int, char **);
+static int	c_net_list(int, int, char **);
+static int	c_net_create(int, int, char **);
+static int	c_net_delete(int, int, char **);
 
 typedef struct command {
 	char const *nullable		cm_name;
@@ -52,12 +55,22 @@ typedef struct command {
 } command_t;
 
 static command_t intf_cmds[] = {
-	{ "list", c_list_interfaces, NULL, "list interfaces" },
+	{ "list",	c_intf_list, NULL,	"list interfaces" },
 	{ NULL, NULL, NULL, NULL }
 };
 
+static command_t net_cmds[] = {
+	{ "list",	c_net_list, NULL,	"list networks" },
+	{ "create",	c_net_create, NULL,	"create new network" },
+	{ "delete",	c_net_delete, NULL,	"delete existing network" },
+	{ NULL, NULL, NULL, NULL },
+};
+
 static command_t root_cmds[] = {
-	{ "interface", NULL, intf_cmds, "configure layer 2 interfaces" },
+	{ "interface",	NULL, intf_cmds,
+		"configure layer 2 interfaces" },
+	{ "network",	NULL, net_cmds,
+		"configure layer 3 networks" },
 	{ NULL, NULL, NULL, NULL }
 };
 
@@ -172,8 +185,83 @@ err:
 	return -1;
 }
 
+static nvlist_t *
+nv_xfer(int server, nvlist_t *cmd) {
+int		 err;
+ssize_t		 n;
+void		*cmdbuf = NULL;
+size_t		 cmdsize = 0;
+struct iovec	 iov;
+struct msghdr	 mhdr;
+char		 respbuf[CTL_MAX_MSG_SIZE];
+nvlist_t	*resp = NULL;
+
+	if ((err = nvlist_error(cmd)) != 0) {
+		errno = err;
+		return NULL;
+	}
+
+	if ((cmdbuf = nvlist_pack(cmd, &cmdsize)) == NULL)
+		goto err;
+
+	iov.iov_base = cmdbuf;
+	iov.iov_len = cmdsize;
+
+	memset(&mhdr, 0, sizeof(mhdr));
+	mhdr.msg_iov = &iov;
+	mhdr.msg_iovlen = 1;
+
+	n = sendmsg(server, &mhdr, MSG_EOR);
+	if (n == -1)
+		goto err;
+
+	iov.iov_base = respbuf;
+	iov.iov_len = sizeof(respbuf);
+
+	memset(&mhdr, 0, sizeof(mhdr));
+	mhdr.msg_iov = &iov;
+	mhdr.msg_iovlen = 1;
+
+	n = recvmsg(server, &mhdr, 0);
+	if (n == -1)
+		goto err;
+
+	if (n == 0) {
+		fprintf(stderr, "%s: empty reply from server\n",
+			getprogname());
+		errno = EINVAL;
+		goto err;
+	}
+
+	if (!(mhdr.msg_flags & MSG_EOR)) {
+		errno = EINVAL;
+		goto err;
+	}
+
+	resp = nvlist_unpack(respbuf, n, 0);
+	if (!resp)
+		goto err;
+
+	nvlist_destroy(cmd);
+	return resp;
+
+err:
+	err = errno;
+
+	nvlist_destroy(cmd);
+
+	if (cmdbuf)
+		free(cmdbuf);
+
+	if (resp)
+		nvlist_destroy(resp);
+
+	errno = err;
+	return NULL;
+}
+
 int
-c_list_interfaces(int server, int argc, char **argv) {
+c_intf_list(int server, int argc, char **argv) {
 nvlist_t		*resp = NULL;
 nvlist_t const *const	*intfs = NULL;
 size_t			 nintfs = 0;
@@ -184,7 +272,7 @@ int			 ret = 0;
 	xo_open_container("interface-list");
 
 	if (argc) {
-		xo_emit("{E/usage: %s list-interfaces}\n",
+		xo_emit("{E/usage: %s interface list}\n",
 			getprogname());
 		ret = 1;
 		goto done;
@@ -273,81 +361,212 @@ done:
 	return ret;
 }
 
-static nvlist_t *
-nv_xfer(int server, nvlist_t *cmd) {
-int		 err;
-ssize_t		 n;
-void		*cmdbuf = NULL;
-size_t		 cmdsize = 0;
-struct iovec	 iov;
-struct msghdr	 mhdr;
-char		 respbuf[CTL_MAX_MSG_SIZE];
-nvlist_t	*resp = NULL;
+int
+c_net_list(int server, int argc, char **argv) {
+nvlist_t		*resp = NULL;
+nvlist_t const *const	*nets = NULL;
+size_t			 nnets = 0;
+int			 ret = 0;
 
-	if ((err = nvlist_error(cmd)) != 0) {
-		errno = err;
-		return NULL;
-	}
+	(void)argv;
 
-	if ((cmdbuf = nvlist_pack(cmd, &cmdsize)) == NULL)
-		goto err;
+	xo_open_container("network-list");
 
-	iov.iov_base = cmdbuf;
-	iov.iov_len = cmdsize;
-
-	memset(&mhdr, 0, sizeof(mhdr));
-	mhdr.msg_iov = &iov;
-	mhdr.msg_iovlen = 1;
-
-	n = sendmsg(server, &mhdr, MSG_EOR);
-	if (n == -1)
-		goto err;
-
-	iov.iov_base = respbuf;
-	iov.iov_len = sizeof(respbuf);
-
-	memset(&mhdr, 0, sizeof(mhdr));
-	mhdr.msg_iov = &iov;
-	mhdr.msg_iovlen = 1;
-
-	n = recvmsg(server, &mhdr, 0);
-	if (n == -1)
-		goto err;
-
-	if (n == 0) {
-		fprintf(stderr, "%s: empty reply from server\n",
+	if (argc) {
+		xo_emit("{E/usage: %s network list}\n",
 			getprogname());
-		errno = EINVAL;
-		goto err;
+		ret = 1;
+		goto done;
 	}
 
-	if (!(mhdr.msg_flags & MSG_EOR)) {
-		errno = EINVAL;
-		goto err;
+	resp = send_simple_command(server, CC_GETNETS);
+	if (!resp) {
+		xo_emit("{E:/%s: failed to send command: %s\n}",
+			getprogname(), strerror(errno));
+		ret = 1;
+		goto done;
 	}
 
-	resp = nvlist_unpack(respbuf, n, 0);
-	if (!resp)
-		goto err;
+	if (!nvlist_exists_nvlist_array(resp, CP_NETS))
+		goto done;
 
-	nvlist_destroy(cmd);
-	return resp;
+	nets = nvlist_get_nvlist_array(resp, CP_NETS, &nnets);
 
-err:
-	err = errno;
+	xo_emit("{T:NAME/%-16s}\n");
 
-	nvlist_destroy(cmd);
+	for (size_t i = 0; i < nnets; ++i) {
+	nvlist_t const *nonnull	net = nets[i];
 
-	if (cmdbuf)
-		free(cmdbuf);
+		if (!nvlist_exists_string(net, CP_NET_NAME)) {
+			xo_emit("{E:/%s: invalid response}\n", getprogname());
+			ret = 1;
+			goto done;
+		}
+
+		xo_open_instance("network");
+		xo_emit("{V:name/%-16s}\n",
+			nvlist_get_string(net, CP_NET_NAME));
+		xo_close_instance("network");
+	}
+
+done:
+	xo_close_container("network-list");
+	xo_finish();
+	nvlist_destroy(resp);
+	return ret;
+}
+
+int
+c_net_create(int server, int argc, char **argv) {
+int		 ret = 0;
+nvlist_t	*cmd = NULL, *resp = NULL;
+char const	*netname = NULL, *status = NULL, *error = NULL;
+
+	(void)argv;
+
+	if (argc != 1) {
+		xo_emit("{E/usage: %s network create <name>}\n",
+			getprogname());
+		ret = 1;
+		goto done;
+	}
+
+	netname = argv[0];
+
+	if ((cmd = nvlist_create(0)) == NULL)  {
+		xo_emit("{E:/%s: nvlist_create: %s\n}",
+			getprogname(), strerror(errno));
+		ret = 1;
+		goto done;
+	}
+
+	nvlist_add_string(cmd, CP_CMD, CC_NEWNET);
+	nvlist_add_string(cmd, CP_NEWNET_NAME, netname);
+
+	if (nvlist_error(cmd) != 0) {
+		xo_emit("{E:/%s: nvlist: %s\n}",
+			getprogname(), strerror(errno));
+		ret = 1;
+		goto done;
+	}
+
+	resp = nv_xfer(server, cmd);
+	cmd = NULL;
+
+	if (!resp) {
+		xo_emit("{E:/%s: failed to send command: %s\n}",
+			getprogname(), strerror(errno));
+		ret = 1;
+		goto done;
+	}
+
+	if (!nvlist_exists_string(resp, CP_STATUS)) {
+		xo_emit("{E:/%s: invalid response}", getprogname());
+		ret = 1;
+		goto done;
+	}
+
+	status = nvlist_get_string(resp, CP_STATUS);
+
+	if (strcmp(status, CV_STATUS_SUCCESS) == 0)
+		goto done;
+
+	if (!nvlist_exists_string(resp, CP_STATUS_INFO)) {
+		xo_emit("{E:/%s: invalid response}", getprogname());
+		ret = 1;
+		goto done;
+	}
+
+	error = nvlist_get_string(resp, CP_STATUS_INFO);
+	xo_emit("{E:/%s}\n", error);
+
+done:
+	xo_finish();
+
+	if (cmd)
+		nvlist_destroy(cmd);
 
 	if (resp)
 		nvlist_destroy(resp);
 
-	errno = err;
-	return NULL;
+	return ret;
 }
 
+int
+c_net_delete(int server, int argc, char **argv) {
+int		 ret = 0;
+nvlist_t	*cmd = NULL, *resp = NULL;
+char const	*netname = NULL, *status = NULL, *error = NULL;
+
+	(void)argv;
+
+	if (argc != 1) {
+		xo_emit("{E/usage: %s network delete <name>}\n",
+			getprogname());
+		ret = 1;
+		goto done;
+	}
+
+	netname = argv[0];
+
+	if ((cmd = nvlist_create(0)) == NULL)  {
+		xo_emit("{E:/%s: nvlist_create: %s\n}",
+			getprogname(), strerror(errno));
+		ret = 1;
+		goto done;
+	}
+
+	nvlist_add_string(cmd, CP_CMD, CC_DELNET);
+	nvlist_add_string(cmd, CP_DELNET_NAME, netname);
+
+	if (nvlist_error(cmd) != 0) {
+		xo_emit("{E:/%s: nvlist: %s\n}",
+			getprogname(), strerror(errno));
+		ret = 1;
+		goto done;
+	}
+
+	resp = nv_xfer(server, cmd);
+	cmd = NULL;
+
+	if (!resp) {
+		xo_emit("{E:/%s: failed to send command: %s\n}",
+			getprogname(), strerror(errno));
+		ret = 1;
+		goto done;
+	}
+
+	if (!nvlist_exists_string(resp, CP_STATUS)) {
+		xo_emit("{E:/%s: invalid response}", getprogname());
+		ret = 1;
+		goto done;
+	}
+
+	status = nvlist_get_string(resp, CP_STATUS);
+
+	if (strcmp(status, CV_STATUS_SUCCESS) == 0)
+		goto done;
+
+	if (!nvlist_exists_string(resp, CP_STATUS_INFO)) {
+		xo_emit("{E:/%s: invalid response}", getprogname());
+		ret = 1;
+		goto done;
+	}
+
+	error = nvlist_get_string(resp, CP_STATUS_INFO);
+	xo_emit("{E:/%s}\n", error);
+
+done:
+	xo_finish();
+
+	if (cmd)
+		nvlist_destroy(cmd);
+
+	if (resp)
+		nvlist_destroy(resp);
+
+	return ret;
+}
 static nvlist_t *
 send_simple_command(int server, char const *command)
 {

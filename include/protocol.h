@@ -43,10 +43,30 @@
 
 #define	CP_CMD			"CMD_NAME"
 
-/* INTF_LIST command - request */
+/* generic response */
+#define CP_STATUS		"STATUS"		/* string */
+#define	CV_STATUS_SUCCESS		"STATUS_SUCCESS"
+#define	CV_STATUS_ERROR			"STATUS_ERROR"
+#define	CP_STATUS_INFO		"STATUS_INFO"		/* string, optional */
+#define	CP_STATUS_SYSERR	"STATUS_SYSERR"		/* string */
+
+/*
+ * error codes
+ */
+#define	CE_SYSERR	"SYSERR"	/* system error, see STATUS_SYSERR */
+#define	CE_PROTO	"PROTO"		/* protocol error */
+#define	CE_NETNX	"NETNX"		/* network does not exist */
+#define	CE_NETEXISTS	"NETEXISTS"	/* network already exists */
+#define	CE_NETNMLN	"NETNMLN"	/* network name is too long */
+
+/*
+ * interface-related commands.
+ */
+
+/* INTF_LIST - request */
 #define	CC_GETIFS		"INTF_LIST"
 
-/* INTF_LIST command - response */
+/* INTF_LIST - response */
 #define	CP_IFACE		"INTFS"		/* nvlist array */
 #define	CP_IFACE_NAME		"NAME"		/* string */
 #define CP_IFACE_FLAGS		"FLAGS"		/* string array */
@@ -64,5 +84,32 @@
 #define CV_IFACE_OPER_UP		6
 #define	CP_IFACE_RXRATE		"RX"		/* number (bits/sec) */
 #define	CP_IFACE_TXRATE		"TX"		/* number (bits/sec) */
+
+/*
+ * network-related commands.
+ */
+
+/*
+ * maximum length of a network name.  these are supposed to be short names
+ * similar to interface names (like "net0"), so limit to 16 characters for now.
+ * there's no technical reason this couldn't be raised in future if needed.
+ */
+
+#define CN_MAXNETNAM		16
+
+/* NET_LIST - request */
+#define	CC_GETNETS		"NET_LIST"
+
+/* NET_LIST - response */
+#define	CP_NETS			"NETS"
+#define	CP_NET_NAME		"NAME"
+
+/* NET_CREATE - request */
+#define	CC_NEWNET		"NET_CREATE"
+#define	CP_NEWNET_NAME		"NET_NAME"
+
+/* NET_DELETE - request */
+#define	CC_DELNET		"NET_DELETE"
+#define	CP_DELNET_NAME		"NET_NAME"
 
 #endif	/* !NETD_PROTOCOL_H_INCLUDED */
