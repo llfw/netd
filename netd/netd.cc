@@ -1,17 +1,17 @@
 /*
  * This is free and unencumbered software released into the public domain.
- * 
+ *
  * Anyone is free to copy, modify, publish, use, compile, sell, or distribute
  * this software, either in source code form or as a compiled binary, for any
  * purpose, commercial or non-commercial, and by any means.
- * 
+ *
  * In jurisdictions that recognize copyright laws, the author or authors of
  * this software dedicate any and all copyright interest in the software to the
  * public domain. We make this dedication for the benefit of the public at
  * large and to the detriment of our heirs and successors. We intend this
  * dedication to be an overt act of relinquishment in perpetuity of all present
  * and future rights to this software under copyright law.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
@@ -23,21 +23,22 @@
 #include	<sys/types.h>
 #include	<sys/event.h>
 
-#include	<errno.h>
-#include	<stdarg.h>
-#include	<stdio.h>
-#include	<stdlib.h>
-#include	<string.h>
-#include	<time.h>
+#include	<cerrno>
+#include	<cstdarg>
+#include	<cstdio>
+#include	<cstdlib>
+#include	<cstring>
+#include	<ctime>
+#include	<print>
 
-#include	"netd.h"
-#include	"kq.h"
-#include	"netlink.h"
-#include	"log.h"
-#include	"ctl.h"
-#include	"msgbus.h"
-#include	"iface.h"
-#include	"network.h"
+#include	"netd.hh"
+#include	"kq.hh"
+#include	"netlink.hh"
+#include	"log.hh"
+#include	"ctl.hh"
+#include	"msgbus.hh"
+#include	"iface.hh"
+#include	"network.hh"
 
 void
 vpanic(char const *str, va_list args) {
@@ -56,22 +57,22 @@ va_list	ap;
 
 int
 main(int argc, char **argv) {
-	time(&current_time);
+	time(&kq::current_time);
 
 	if (argc != 1) {
-		fprintf(stderr, "usage: %s\n", argv[0]);
+		std::print(stderr, "usage: {}\n", argv[0]);
 		return 1;
 	}
 
-	nlog(NLOG_INFO, "starting");
+	nlog::info("starting");
 
-	if (kqinit() == -1) {
-		nlog(NLOG_FATAL, "kqinit: %s", strerror(errno));
+	if (kq::init() == -1) {
+		nlog::fatal("kqinit: {}", strerror(errno));
 		return 1;
 	}
 
-	if (msgbus_init() == -1) {
-		nlog(NLOG_FATAL, "msgbus init failed: %s", strerror(errno));
+	if (msgbus::init() == -1) {
+		nlog::fatal("msgbus init failed: {}", strerror(errno));
 		return 1;
 	}
 
@@ -80,25 +81,24 @@ main(int argc, char **argv) {
 	 * netlink's boot-time newlink/newaddr messages.
 	 */
 	if (iface_init() == -1) {
-		nlog(NLOG_FATAL, "iface init failed: %s", strerror(errno));
+		nlog::fatal("iface init failed: {}", strerror(errno));
 		return 1;
 	}
 
-	if (nlinit() == -1) {
-		nlog(NLOG_FATAL, "netlink init failed: %s", strerror(errno));
+	if (netlink::init() == -1) {
+		nlog::fatal("netlink init failed: {}", strerror(errno));
 		return 1;
 	}
 
 	if (ctl_setup() == -1) {
-		nlog(NLOG_FATAL, "ctl init failed: %s", strerror(errno));
+		nlog::fatal( "ctl init failed: {}", strerror(errno));
 		return 1;
 	}
 
-	if (kqrun() == -1) {
-		nlog(NLOG_FATAL, "kqrun: %s", strerror(errno));
+	if (kq::run() == -1) {
+		nlog::fatal("kqrun: {}", strerror(errno));
 		return 1;
 	}
 
 	return 0;
 }
-

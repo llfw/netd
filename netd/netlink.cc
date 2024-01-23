@@ -1,17 +1,17 @@
 /*
  * This is free and unencumbered software released into the public domain.
- * 
+ *
  * Anyone is free to copy, modify, publish, use, compile, sell, or distribute
  * this software, either in source code form or as a compiled binary, for any
  * purpose, commercial or non-commercial, and by any means.
- * 
+ *
  * In jurisdictions that recognize copyright laws, the author or authors of
  * this software dedicate any and all copyright interest in the software to the
  * public domain. We make this dedication for the benefit of the public at
  * large and to the detriment of our heirs and successors. We intend this
  * dedication to be an overt act of relinquishment in perpetuity of all present
  * and future rights to this software under copyright law.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
@@ -36,39 +36,48 @@
 #include	<stdio.h>
 #include	<unistd.h>
 
-#include	"netlink.h"
-#include	"netd.h"
-#include	"kq.h"
-#include	"log.h"
+#include	<map>
+#include	<functional>
 
-static kqdisp	nldomsg(int fd, ssize_t nbytes, void *nullable udata);
+#include	"netlink.hh"
+#include	"netd.hh"
+#include	"kq.hh"
+#include	"log.hh"
 
-static void	hdl_rtm_newlink(struct nlmsghdr *nonnull);
-static void	hdl_rtm_dellink(struct nlmsghdr *nonnull);
-static void	hdl_rtm_newaddr(struct nlmsghdr *nonnull);
-static void	hdl_rtm_deladdr(struct nlmsghdr *nonnull);
+namespace netlink {
 
-static void (*handlers[])(struct nlmsghdr *nonnull) = {
-	[RTM_NEWLINK] = hdl_rtm_newlink,
-	[RTM_DELLINK] = hdl_rtm_dellink,
-	[RTM_NEWADDR] = hdl_rtm_newaddr,
-	[RTM_DELADDR] = hdl_rtm_deladdr,
+namespace {
+
+auto nldomsg(int fd, ssize_t nbytes, socket *nonnull) -> kq::disp;
+
+void	hdl_rtm_newlink(struct nlmsghdr *nonnull);
+void	hdl_rtm_dellink(struct nlmsghdr *nonnull);
+void	hdl_rtm_newaddr(struct nlmsghdr *nonnull);
+void	hdl_rtm_deladdr(struct nlmsghdr *nonnull);
+
+std::map<int, std::function<void (nlmsghdr *nonnull)>> handlers = {
+	{ RTM_NEWLINK, hdl_rtm_newlink },
+	{ RTM_DELLINK, hdl_rtm_dellink },
+	{ RTM_NEWADDR, hdl_rtm_newaddr },
+	{ RTM_DELADDR, hdl_rtm_deladdr },
 };
 
-static int	nl_fetch_interfaces(void);
-static int	nl_fetch_addresses(void);
+int	nl_fetch_interfaces(void);
+int	nl_fetch_addresses(void);
 
-nlsocket_t *
-nlsocket_create(int flags) {
-nlsocket_t	*ret = NULL;
+} // anonymous namespace
+
+socket *
+socket_create(int flags) {
+socket		*ret = NULL;
 int		 err, optval;
 socklen_t	 optlen;
 
-	if ((ret = calloc(1, sizeof(*ret))) == NULL)
+	if ((ret = new (std::nothrow) socket) == NULL)
 		goto err;
 
-	if ((ret->ns_fd = kqsocket(AF_NETLINK, SOCK_RAW | flags,
-				   NETLINK_ROUTE)) == -1)
+	if ((ret->ns_fd = kq::socket(AF_NETLINK, SOCK_RAW | flags,
+				     NETLINK_ROUTE)) == -1)
 		goto err;
 
 	optval = 1;
@@ -82,21 +91,21 @@ socklen_t	 optlen;
 err:
 	err = errno;
 	if (ret && ret->ns_fd)
-		kqclose(ret->ns_fd);
-	free(ret);
+		kq::close(ret->ns_fd);
+	delete ret;
 	errno = err;
 	return NULL;
 }
 
 void
-nlsocket_close(nlsocket_t *nls) {
-	kqclose(nls->ns_fd);
-	free(nls);
+socket_close(socket *nls) {
+	kq::close(nls->ns_fd);
+	delete nls;
 }
 
 int
-nlinit(void) {
-struct nlsocket	*nls = NULL;
+init(void) {
+struct socket	*nls = NULL;
 int		 nl_groups[] = {
 	RTNLGRP_LINK,
 	RTNLGRP_NEIGH,
@@ -107,9 +116,9 @@ int		 nl_groups[] = {
 	RTNLGRP_IPV6_ROUTE,
 };
 
-	nls = nlsocket_create(SOCK_NONBLOCK | SOCK_CLOEXEC);
+	nls = socket_create(SOCK_NONBLOCK | SOCK_CLOEXEC);
 	if (!nls) {
-		nlog(NLOG_FATAL, "nlinit: nlsocket_create: %s",
+		nlog::fatal("nlinit: socket_create: {}",
 		     strerror(errno));
 		goto err;
 	}
@@ -120,48 +129,54 @@ int		 nl_groups[] = {
 
 		if (setsockopt(nls->ns_fd, SOL_NETLINK, NETLINK_ADD_MEMBERSHIP,
 			       &optval, optlen) == -1) {
-			nlog(NLOG_FATAL,
-			     "nlinit: NETLINK_ADD_MEMBERSHIP: %s",
-			     strerror(errno));
+			nlog::fatal("nlinit: NETLINK_ADD_MEMBERSHIP: {}",
+				    strerror(errno));
 			goto err;
 		}
 	}
 
 	if (nl_fetch_interfaces() == -1) {
-		nlog(NLOG_FATAL, "nlinit: nl_fetch_interfaces: %s",
-		     strerror(errno));
+		nlog::fatal("nlinit: nl_fetch_interfaces: {}",
+			    strerror(errno));
 		goto err;
 	}
 
 	if (nl_fetch_addresses() == -1) {
-		nlog(NLOG_FATAL, "nlinit: nl_fetch_addresses: %s",
-		     strerror(errno));
+		nlog::fatal("nlinit: nl_fetch_addresses: {}",
+			    strerror(errno));
 		goto err;
 	}
 
-	nls->ns_bufp = nls->ns_buf;
-	kqread(nls->ns_fd, nls->ns_bufp, sizeof(nls->ns_buf), nldomsg, nls);
+	nls->ns_bufp = &nls->ns_buf[0];
+
+	{
+		auto handler = [=](int fd, ssize_t nbytes) {
+			return nldomsg(fd, nbytes, nls);
+		};
+
+		kq::read(nls->ns_fd, std::span(nls->ns_buf), handler);
+	}
 
 	return 0;
 
 err:
 	if (nls)
-		nlsocket_close(nls);
-	
+		socket_close(nls);
+
 	return -1;
 }
+
+namespace {
 
 /*
  * donlread: call when netlink data is received
  */
-static kqdisp
-nldomsg(int fd, ssize_t nbytes, void *udata) {
-nlsocket_t	*nls = udata;
-struct nlmsghdr *hdr;
+auto nldomsg(int fd, ssize_t nbytes, socket *nls) -> kq::disp {
+nlmsghdr	*hdr;
 
 	(void)fd;
 
-	assert(udata);
+	assert(nls);
 
 	if (nbytes < 0)
 		panic("donlread: netlink read error: %s",
@@ -171,16 +186,16 @@ struct nlmsghdr *hdr;
 	hdr = (struct nlmsghdr *)nls->ns_bufp;
 
 	while (NLMSG_OK(hdr, (int)nls->ns_bufn)) {
-		nlog(NLOG_DEBUG, "nlhdr len=%u type=%u flags=%u seq=%u pid=%u",
-		     (unsigned int) hdr->nlmsg_len,
-		     (unsigned int) hdr->nlmsg_type,
-		     (unsigned int) hdr->nlmsg_flags,
-		     (unsigned int) hdr->nlmsg_seq,
-		     (unsigned int) hdr->nlmsg_pid);
+		nlog::debug("nlhdr len={} type={} flags={} seq={} pid={}",
+		     hdr->nlmsg_len,
+		     hdr->nlmsg_type,
+		     hdr->nlmsg_flags,
+		     hdr->nlmsg_seq,
+		     hdr->nlmsg_pid);
 
-		if (hdr->nlmsg_type < (sizeof(handlers) / sizeof(*handlers)) &&
-		    handlers[hdr->nlmsg_type] != NULL)
-			handlers[hdr->nlmsg_type](hdr);
+		if (auto hdl = handlers.find(hdr->nlmsg_type);
+		    hdl != handlers.end())
+			hdl->second(hdr);
 
 		nls->ns_bufn -= hdr->nlmsg_len;
 		nls->ns_bufp += hdr->nlmsg_len;
@@ -189,22 +204,30 @@ struct nlmsghdr *hdr;
 
 	/* shift any pending data back to the start of the buffer */
 	if (nls->ns_bufn > 0) {
-		memmove(nls->ns_buf, nls->ns_buf, nls->ns_bufn);
-		nls->ns_bufp = nls->ns_buf;
+		memmove(&nls->ns_buf[0], nls->ns_bufp, nls->ns_bufn);
+		nls->ns_bufp = &nls->ns_buf[0];
 	}
 
-	kqread(nls->ns_fd, nls->ns_bufp,
-	       (ssize_t)(sizeof(nls->ns_buf) - nls->ns_bufn),
-	       nldomsg, nls);
-	return KQ_STOP;
+	/*
+	 * issue another read here instead of using kq::rearm because we want
+	 * to read into the remaining part of the buffer.
+	 * TODO: replace this once we have a better kqread().
+	 */
+	auto handler = [=](int fd, ssize_t nbytes) {
+		return nldomsg(fd, nbytes, nls);
+	};
+	kq::read(nls->ns_fd,
+	       std::span(nls->ns_bufp, (sizeof(nls->ns_buf) - nls->ns_bufn)),
+	       handler);
+	return kq::disp::stop;
 }
 
-static struct nlmsghdr *
-nlsocket_getmsg(nlsocket_t *nls) {
+struct nlmsghdr *
+socket_getmsg(socket *nls) {
 struct nlmsghdr	*hdr = (struct nlmsghdr *)nls->ns_bufp;
 
 	if (!NLMSG_OK(hdr, (int)nls->ns_bufn))
-		panic("nlsocket_getmsg: data but no message");
+		panic("netlink::socket_getmsg: data but no message");
 
 	hdr = (struct nlmsghdr *)nls->ns_bufp;
 	nls->ns_bufp += hdr->nlmsg_len;
@@ -212,28 +235,30 @@ struct nlmsghdr	*hdr = (struct nlmsghdr *)nls->ns_bufp;
 	return hdr;
 }
 
+} // anonymous namespace
+
 struct nlmsghdr *
-nlsocket_recv(nlsocket_t *nls) {
+socket_recv(socket *nls) {
 	if (!nls->ns_bufn) {
 	ssize_t		n;
 
-		n = read(nls->ns_fd, nls->ns_buf, sizeof(nls->ns_buf));
+		n = read(nls->ns_fd, &nls->ns_buf[0], nls->ns_buf.size());
 		if (n < 0)
 			return NULL;
 
-		nls->ns_bufp = nls->ns_buf;
+		nls->ns_bufp = &nls->ns_buf[0];
 		nls->ns_bufn = (size_t)n;
 	}
 
-	return nlsocket_getmsg(nls);
+	return socket_getmsg(nls);
 }
 
 int
-nlsocket_send(nlsocket_t *nls, struct nlmsghdr *nlmsg, size_t msglen) {
+socket_send(socket *nls, struct nlmsghdr *nlmsg, size_t msglen) {
 struct iovec	iov;
 struct msghdr	msg;
 
-	nlog(NLOG_DEBUG, "nlsocket_send: send fd=%d", nls->ns_fd);
+	nlog::debug("netlink::socket_send: send fd={}", nls->ns_fd);
 
 	iov.iov_base = nlmsg;
 	iov.iov_len = msglen;
@@ -248,17 +273,19 @@ struct msghdr	msg;
 	return 0;
 }
 
+namespace {
+
 /*
  * ask the kernel to report all existing network interfaces.
  */
-static int
+int
 nl_fetch_interfaces(void) {
-nlsocket_t	*nls = NULL;
-struct nlmsghdr	 hdr;
-struct nlmsghdr	*rhdr = NULL;
+socket		*nls = NULL;
+nlmsghdr	 hdr;
+nlmsghdr	*rhdr = NULL;
 int		 ret = 0;
 
-	if ((nls = nlsocket_create(SOCK_CLOEXEC)) == NULL) {
+	if ((nls = socket_create(SOCK_CLOEXEC)) == NULL) {
 		ret = -1;
 		goto done;
 	}
@@ -268,12 +295,12 @@ int		 ret = 0;
 	hdr.nlmsg_type = RTM_GETLINK;
 	hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
 
-	if (nlsocket_send(nls, &hdr, sizeof(hdr)) == -1) {
+	if (socket_send(nls, &hdr, sizeof(hdr)) == -1) {
 		ret = -1;
 		goto done;
 	}
 
-	while ((rhdr = nlsocket_recv(nls)) != NULL) {
+	while ((rhdr = socket_recv(nls)) != NULL) {
 		if (rhdr->nlmsg_type == NLMSG_DONE)
 			break;
 
@@ -283,7 +310,7 @@ int		 ret = 0;
 
 done:
 	if (nls)
-		nlsocket_close(nls);
+		socket_close(nls);
 
 	return ret;
 }
@@ -291,14 +318,14 @@ done:
 /*
  * ask the kernel to report all existing addresses.
  */
-static int
+int
 nl_fetch_addresses(void) {
-nlsocket_t	*nls = NULL;
-struct nlmsghdr	 hdr;
-struct nlmsghdr	*rhdr = NULL;
+socket		*nls = NULL;
+nlmsghdr	 hdr;
+nlmsghdr	*rhdr = NULL;
 int		 ret = 0;
 
-	if ((nls = nlsocket_create(SOCK_CLOEXEC)) == NULL) {
+	if ((nls = socket_create(SOCK_CLOEXEC)) == NULL) {
 		ret = 1;
 		goto done;
 	}
@@ -308,12 +335,12 @@ int		 ret = 0;
 	hdr.nlmsg_type = RTM_GETADDR;
 	hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
 
-	if (nlsocket_send(nls, &hdr, sizeof(hdr)) == -1) {
+	if (socket_send(nls, &hdr, sizeof(hdr)) == -1) {
 		ret = 1;
 		goto done;
 	}
 
-	while ((rhdr = nlsocket_recv(nls)) != NULL) {
+	while ((rhdr = socket_recv(nls)) != NULL) {
 		if (rhdr->nlmsg_type == NLMSG_DONE)
 			break;
 
@@ -323,19 +350,19 @@ int		 ret = 0;
 
 done:
 	if (nls)
-		nlsocket_close(nls);
+		socket_close(nls);
 
 	return ret;
 }
 
 /* handle RTM_NEWLINK */
-static void
+void
 hdl_rtm_newlink(struct nlmsghdr *nlmsg) {
-struct ifinfomsg		*ifinfo = NLMSG_DATA(nlmsg);
-struct rtattr			*attrmsg = NULL;
-size_t				 attrlen;
-struct netlink_newlink_data	 msg;
-struct rtnl_link_stats64	 stats;
+ifinfomsg		*ifinfo = static_cast<ifinfomsg *>(NLMSG_DATA(nlmsg));
+rtattr			*attrmsg = NULL;
+size_t			 attrlen;
+newlink_data		 msg;
+rtnl_link_stats64	 stats;
 
 	memset(&msg, 0, sizeof(msg));
 	memset(&stats, 0, sizeof(stats));
@@ -346,7 +373,8 @@ struct rtnl_link_stats64	 stats;
 
 		switch (attrmsg->rta_type) {
 		case IFLA_IFNAME:
-			msg.nl_ifname = RTA_DATA(attrmsg);
+			msg.nl_ifname =
+				static_cast<char const *>(RTA_DATA(attrmsg));
 			break;
 
 		case IFLA_OPERSTATE:
@@ -361,42 +389,45 @@ struct rtnl_link_stats64	 stats;
 		}
 	}
 
-	if (msg.nl_ifname == NULL) {
-		nlog(NLOG_ERROR, "RTM_NEWLINK: no interface name?");
+	if (msg.nl_ifname.empty()) {
+		nlog::error("RTM_NEWLINK: no interface name?");
 		return;
 	}
 
-	nlog(NLOG_DEBUG, "RTM_NEWLINK: %s<%d> nlmsg_flags=0x%x ifi_flags=0x%x"
-	     "ifi_change=%x",
-	     msg.nl_ifname, ifinfo->ifi_index, nlmsg->nlmsg_flags,
-	     ifinfo->ifi_flags, ifinfo->ifi_change);
+	nlog::debug("RTM_NEWLINK: {}<{}> nlmsg_flags={:#x} ifi_flags={:#x}"
+		    "ifi_change={:#x}",
+		    msg.nl_ifname,
+		    ifinfo->ifi_index,
+		    nlmsg->nlmsg_flags,
+		    ifinfo->ifi_flags,
+		    ifinfo->ifi_change);
 
 	msg.nl_ifindex = (unsigned)ifinfo->ifi_index;
 	msg.nl_flags = ifinfo->ifi_flags;
-	msgbus_post(MSG_NETLINK_NEWLINK, &msg);
+	evt_newlink.dispatch(msg);
 }
 
 /* handle RTM_DELLINK */
-static void
-hdl_rtm_dellink(struct nlmsghdr *nlmsg) {
-struct ifinfomsg		*ifinfo = NLMSG_DATA(nlmsg);
-struct netlink_dellink_data	 msg;
+void
+hdl_rtm_dellink(nlmsghdr *nlmsg) {
+ifinfomsg	*ifinfo = static_cast<ifinfomsg *>(NLMSG_DATA(nlmsg));
+dellink_data	 msg;
 
 	msg.dl_ifindex = (unsigned)ifinfo->ifi_index;
-	msgbus_post(MSG_NETLINK_DELLINK, &msg);
+	evt_dellink.dispatch(msg);
 }
 
 /* handle RTM_NEWADDR */
-static void
-hdl_rtm_newaddr(struct nlmsghdr *nlmsg) {
-struct ifaddrmsg		*ifamsg;
-struct rtattr			*attrmsg;
-size_t				 attrlen;
-struct netlink_newaddr_data	 msg;
+void
+hdl_rtm_newaddr(nlmsghdr *nlmsg) {
+ifaddrmsg	*ifamsg;
+rtattr		*attrmsg;
+size_t		 attrlen;
+newaddr_data	 msg;
 
-	nlog(NLOG_DEBUG, "RTM_NEWADDR");
+	nlog::debug("RTM_NEWADDR");
 
-	ifamsg = NLMSG_DATA(nlmsg);
+	ifamsg = static_cast<ifaddrmsg *>(NLMSG_DATA(nlmsg));
 
 	msg.na_ifindex = ifamsg->ifa_index;
 	msg.na_family = ifamsg->ifa_family;
@@ -411,24 +442,24 @@ struct netlink_newaddr_data	 msg;
 			continue;
 
 		msg.na_addr = RTA_DATA(attrmsg);
-		msgbus_post(MSG_NETLINK_NEWADDR, &msg);
+		evt_newaddr.dispatch(msg);
 		return;
 	}
 
-	nlog(NLOG_WARNING, "received RTM_NEWADDR without an IFA_ADDRESS");
+	nlog::warning("received RTM_NEWADDR without an IFA_ADDRESS");
 }
 
 /* handle RTM_DELADDR */
-static void
-hdl_rtm_deladdr(struct nlmsghdr *nlmsg) {
-struct ifaddrmsg		*ifamsg;
-struct rtattr			*attrmsg;
-size_t				 attrlen;
-struct netlink_deladdr_data	 msg;
+void
+hdl_rtm_deladdr(nlmsghdr *nlmsg) {
+ifaddrmsg	*ifamsg;
+rtattr		*attrmsg;
+size_t		 attrlen;
+deladdr_data	 msg;
 
-	nlog(NLOG_DEBUG, "RTM_DELADDR");
+	nlog::debug("RTM_DELADDR");
 
-	ifamsg = NLMSG_DATA(nlmsg);
+	ifamsg = static_cast<ifaddrmsg *>(NLMSG_DATA(nlmsg));
 
 	msg.da_ifindex = ifamsg->ifa_index;
 	msg.da_family = ifamsg->ifa_family;
@@ -443,9 +474,13 @@ struct netlink_deladdr_data	 msg;
 			continue;
 
 		msg.da_addr = RTA_DATA(attrmsg);
-		msgbus_post(MSG_NETLINK_DELADDR, &msg);
+		evt_deladdr.dispatch(msg);
 		return;
 	}
 
-	nlog(NLOG_WARNING, "received RTM_DELADDR without an IFA_ADDRESS");
+	nlog::warning("received RTM_DELADDR without an IFA_ADDRESS");
 }
+
+} // anonymous namespace
+
+} // namespace netlink

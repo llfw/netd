@@ -5,14 +5,18 @@
 TOPDIR		:= ${.PARSEDIR:tA:H}
 
 CC		= cc
+CXX		= c++
 WARNFLAGS	= -W -Wall -Wextra -Wmissing-variable-declarations	\
 		  -Wshorten-64-to-32 -Wsign-conversion			\
 		  -Wimplicit-fallthrough -Wmissing-prototypes
 CPPFLAGS	= -I. -I${TOPDIR}/include 
-CFLAGS		= -std=c17 -pedantic -O0 -g -fPIE \
-		  -fstack-protector-strong ${WARNFLAGS}
+CFLAGS		= -std=c17 -pedantic -O0 -g -fPIE -fstack-protector-strong \
+		  ${WARNFLAGS}
+CXXFLAGS	= -std=c++23 -pedantic -O0 -g -fPIE -fstack-protector-strong \
+		  -fno-exceptions -fno-rtti ${WARNFLAGS}
 LDFLAGS		= -pie
 
+# Set language standards
 # flangs for clang-analyzer
 ANALYSER_FLAGS	= \
 	-enable-checker nullability.NullableDereferenced 	\
@@ -45,3 +49,5 @@ CFLAGS		+= -fsanitize=address -fsanitize=undefined
 .endif
 
 .export CC CPPFLAGS CFLAGS LDFLAGS
+
+.include "${TOPDIR}/mk/rules.mk"

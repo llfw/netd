@@ -20,63 +20,48 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include	<assert.h>
-#include	<errno.h>
-#include	<stdlib.h>
-#include	<string.h>
+#ifndef	NETD_NETWORK_H_INCLUDED
+#define	NETD_NETWORK_H_INCLUDED
 
-#include	"netd.h"
-#include	"network.h"
+#include	<string>
+#include	<map>
 
-network_t *networks = NULL;
+#include	"defs.hh"
 
-struct network *
-netfind(char const *name) {
-struct network	*network;
+/*
+ * a network we know about, i.e. a layer 3 (IP) configuration which can be
+ * applied to an interface.
+ */
 
-	for (network = networks; network; network = network->net_next) {
-		if (strcmp(name, network->net_name) == 0)
-			return network;
+struct network {
+	network(std::string_view name) : _name(name) {}
+
+	network(network const &) = delete;
+	network(network &&) = default;
+
+	auto operator=(network const &) -> network& = delete;
+	auto operator=(network &&) -> network& = default;
+
+	auto name() const -> std::string const & {
+		return _name;
 	}
 
-	errno = ESRCH;
-	return NULL;
-}
+private:
+	std::string	_name;
+};
 
-struct network *
-netcreate(char const *name) {
-struct network	*net;
+extern std::map<std::string_view, network *> networks;
 
-	if (netfind(name) != NULL) {
-		errno = EEXIST;
-		return NULL;
-	}
+/*
+ * create a new network and add it to the configuration store; returns NULL on
+ * error and errno is set.
+ */
+network *nullable netcreate(std::string_view name);
 
-	if ((net = calloc(1, sizeof(*net))) == NULL) {
-		errno = ENOMEM;
-		return NULL;
-	}
+/* retrieve an existing network; returns NULL if not found. */
+network *nullable netfind(std::string_view name);
 
-	net->net_name = strdup(name);
-	net->net_next = networks;
-	networks = net;
+/* delete a network.  all configuration will be removed. */
+void netdelete(network *nonnull);
 
-	return net;
-}
-
-void
-netdelete(network_t *nonnull net) {
-	assert(net);
-
-	for (network_t **node = &networks;
-	     *node;
-	     node = &(*node)->net_next) {
-		if (*node == net) {
-			*node = (*node)->net_next;
-			free(net);
-			return;
-		}
-	}
-
-	panic("netdelete: trying to remove non-existing network");
-}
+#endif	/* !NETD_NETWORK_H_INCLUDED */

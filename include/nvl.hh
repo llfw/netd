@@ -1,0 +1,742 @@
+/*
+ * This is free and unencumbered software released into the public domain.
+ *
+ * Anyone is free to copy, modify, publish, use, compile, sell, or distribute
+ * this software, either in source code form or as a compiled binary, for any
+ * purpose, commercial or non-commercial, and by any means.
+ *
+ * In jurisdictions that recognize copyright laws, the author or authors of
+ * this software dedicate any and all copyright interest in the software to the
+ * public domain. We make this dedication for the benefit of the public at
+ * large and to the detriment of our heirs and successors. We intend this
+ * dedication to be an overt act of relinquishment in perpetuity of all present
+ * and future rights to this software under copyright law.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+ * AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+
+#ifndef	NETD_NVL_H_INCLUDED
+#define	NETD_NVL_H_INCLUDED
+
+/*
+ * nvl: lightweight wrapper around nv(9).
+ *
+ * the priority here is a clean and C++-friendly API, so in some cases this
+ * means we do data copies or conversions where libnv itself wouldn't.
+ * however, this is extremely unlikely to introduce any performance concerns in
+ * practice.
+ */
+
+#include	<sys/nv.h>
+
+#include	<expected>
+#include	<span>
+#include	<system_error>
+#include	<vector>
+#include	<ranges>
+
+/*
+ * an nvlist
+ */
+
+struct nvl {
+	nvl(int flags = 0) : _nv(nvlist_create(flags)), _owning(true) {}
+
+	explicit nvl(nvlist_t *nv, bool owning = true)
+		: _nv(nv), _owning(owning) {}
+
+	nvl(nvl const &other)
+	: _nv(nvlist_clone(other._nv))
+	, _owning(true) {}
+
+	nvl(nvl &&other)
+	: _nv(std::exchange(other._nv, nullptr))
+	, _owning(other._owning) {}
+
+	auto operator=(nvl const &other) -> nvl & {
+		if (this != &other) {
+			_free();
+			_nv = nvlist_clone(other._nv);
+			_owning = true;
+		}
+		return *this;
+	}
+
+	auto operator=(nvl &&other) -> nvl & {
+		if (this != &other) {
+			std::swap(_nv, other._nv);
+			std::swap(_owning, other._owning);
+		}
+		return *this;
+	}
+
+	~nvl() {
+		_free();
+	}
+
+	template<std::ranges::contiguous_range Range>
+		requires std::is_same_v<std::byte,
+			std::remove_cvref_t<
+				std::ranges::range_value_t<Range>>>
+	static auto unpack(Range &&data, int flags = 0)
+		-> std::expected<nvl, std::error_code>
+	{
+	nvlist_t	*nv;
+		if (nv = nvlist_unpack(
+			       std::ranges::data(data),
+			       std::ranges::size(data),
+			       flags);
+		    nv != nullptr) {
+			return nvl(nv);
+		}
+
+		return std::unexpected(std::make_error_code(std::errc(errno)));
+	}
+
+	static auto recv(int sock, int flags)
+		-> std::expected<nvl, std::error_code>
+	{
+	nvlist_t	*nv;
+		if (nv = nvlist_recv(sock, flags); nv != nullptr)
+			return nvl(nv);
+		return std::unexpected(std::make_error_code(std::errc(errno)));
+	}
+
+	static auto xfer(int sock, nvl &&nvlist, int flags)
+		-> std::expected<nvl, std::error_code>
+	{
+	nvlist_t	*nv;
+		if (nv = nvlist_xfer(sock, nvlist._nv, flags);
+		    nv != nullptr) {
+			// nvlist_xfer destroys the original list
+			nvlist._nv = nullptr;
+			return nvl(nv);
+		}
+
+		return std::unexpected(std::make_error_code(std::errc(errno)));
+	}
+
+	auto error() const -> std::optional<std::error_code> {
+		if (int err = nvlist_error(_nv); err != 0)
+			return std::make_error_code(std::errc(err));
+		else
+			return {};
+	}
+
+	explicit operator bool() const {
+		return nvlist_error(_nv) == 0;
+	}
+
+	auto set_error(int error) -> void {
+		nvlist_set_error(_nv, error);
+	}
+
+	auto empty() const -> bool {
+		return nvlist_empty(_nv);
+	}
+
+	auto flags() const -> int {
+		return nvlist_flags(_nv);
+	}
+
+	auto in_array() const -> bool {
+		return nvlist_in_array(_nv);
+	}
+
+	auto dump(int fd) const -> void {
+		nvlist_dump(_nv, fd);
+	}
+
+	auto fdump(FILE *fp) const -> void {
+		nvlist_fdump(_nv, fp);
+	}
+
+	auto size() const -> std::size_t {
+		return nvlist_size(_nv);
+	}
+
+	auto pack() const
+		-> std::expected<std::vector<std::byte>, std::error_code> {
+	std::size_t	 size;
+	void		*data;
+
+		if (data = nvlist_pack(_nv, &size); data != nullptr) {
+			auto bytes = static_cast<std::byte *>(data);
+			return std::vector(bytes, bytes + size);
+		}
+
+		return std::unexpected(std::make_error_code(std::errc(errno)));
+	}
+
+	auto send(int sock) const
+		-> std::expected<void, std::error_code>
+	{
+		if (nvlist_send(sock, _nv) == 0)
+			return {};
+		return std::unexpected(std::make_error_code(std::errc(errno)));
+	}
+
+	/*
+	 * exists_xxx() accessors.
+	 */
+
+	auto exists(std::string_view name) const -> bool {
+		return nvlist_exists(_nv, std::string(name).c_str());
+	}
+
+	auto exists_null(std::string_view name) const -> bool {
+		return nvlist_exists_null(_nv, std::string(name).c_str());
+	}
+
+	auto exists_bool(std::string_view name) const -> bool {
+		return nvlist_exists_bool(_nv, std::string(name).c_str());
+	}
+
+	auto exists_number(std::string_view name) const -> bool {
+		return nvlist_exists_number(_nv, std::string(name).c_str());
+	}
+
+	auto exists_string(std::string_view name) const -> bool {
+		return nvlist_exists_string(_nv, std::string(name).c_str());
+	}
+
+	auto exists_nvlist(std::string_view name) const -> bool {
+		return nvlist_exists_nvlist(_nv, std::string(name).c_str());
+	}
+
+	auto exists_descriptor(std::string_view name) const -> bool {
+		return nvlist_exists_descriptor(_nv,
+						std::string(name).c_str());
+	}
+
+	auto exists_binary(std::string_view name) const -> bool {
+		return nvlist_exists_binary(_nv, std::string(name).c_str());
+	}
+
+	auto exists_bool_array(std::string_view name) const -> bool {
+		return nvlist_exists_bool_array(_nv,
+						std::string(name).c_str());
+	}
+
+	auto exists_number_array(std::string_view name) const -> bool {
+		return nvlist_exists_number_array(_nv,
+						  std::string(name).c_str());
+	}
+
+	auto exists_string_array(std::string_view name) const -> bool {
+		return nvlist_exists_string_array(
+						  _nv,
+						  std::string(name).c_str());
+	}
+
+	auto exists_nvlist_array(std::string_view name) const -> bool {
+		return nvlist_exists_nvlist_array(
+					  _nv,
+					  std::string(name).c_str());
+	}
+
+	auto exists_descriptor_array(std::string_view name) const -> bool {
+		return nvlist_exists_descriptor_array(
+					      _nv,
+					      std::string(name).c_str());
+	}
+
+	auto add_null(std::string_view name) -> void {
+		nvlist_add_null(_nv, std::string(name).c_str());
+	}
+
+	auto add_bool(std::string_view name, bool value) -> void {
+		nvlist_add_bool(_nv, std::string(name).c_str(), value);
+	}
+
+	auto add_number(std::string_view name, uint64_t value) -> void {
+		nvlist_add_number(_nv, std::string(name).c_str(), value);
+	}
+
+	auto add_string(std::string_view name,
+			std::string_view value) -> void {
+		// TODO: check for NULs
+		nvlist_add_string(_nv,
+				  std::string(name).c_str(),
+				  std::string(value).c_str());
+	}
+
+	/*
+	 * here for completeness, but don't use these two
+	 */
+	auto add_stringf(std::string_view name,
+			 char const *fmt,
+			 ...) -> void {
+	va_list	ap;
+		va_start(ap, fmt);
+		add_stringv(name, fmt, ap);
+		va_end(ap);
+	}
+
+	auto add_stringv(std::string_view name,
+			 char const *fmt,
+			 va_list ap) -> void {
+		nvlist_add_stringv(_nv, std::string(name).c_str(), fmt, ap);
+	}
+
+	/* nvlist_add_nvlist() copies the underlying nvlist */
+	auto add_nvlist(std::string_view name, nvl const &other) -> void {
+		nvlist_add_nvlist(_nv, std::string(name).c_str(), other._nv);
+	}
+
+	auto add_descriptor(std::string_view name, int value) -> void {
+		nvlist_add_descriptor(_nv, std::string(name).c_str(), value);
+	}
+
+	template<std::ranges::contiguous_range Range>
+	auto add_binary(std::string_view name, Range &&value) -> void {
+		nvlist_add_binary(_nv,
+				  std::string(name).c_str(),
+				  std::ranges::data(value),
+				  std::ranges::size(value));
+	}
+
+	template<std::ranges::contiguous_range Range>
+		requires std::is_same_v<
+				bool,
+				std::remove_cvref_t<
+					std::ranges::range_value_t<Range>>>
+	auto add_bool_array(std::string_view name, Range &&value) -> void {
+		nvlist_add_bool_array(_nv,
+				      std::string(name).c_str(),
+				      std::ranges::data(value),
+				      std::ranges::size(value));
+	}
+
+	template<std::ranges::contiguous_range Range>
+		requires std::is_same_v<
+				uint64_t,
+				std::remove_cvref_t<
+					std::ranges::range_value_t<Range>>>
+	auto add_number_array(std::string_view name, Range &&value) -> void {
+		nvlist_add_number_array(_nv,
+					std::string(name).c_str(),
+					std::ranges::data(value),
+					std::ranges::size(value));
+	}
+
+	template<std::ranges::contiguous_range Range>
+		requires std::is_same_v<
+				char *,
+				std::remove_cvref_t<
+					std::ranges::range_value_t<Range>>>
+	auto add_string_array(std::string_view name, Range &&value) -> void {
+		nvlist_add_string_array(_nv,
+					std::string(name).c_str(),
+					std::ranges::data(value),
+					std::ranges::size(value));
+	}
+
+	template<std::ranges::contiguous_range Range>
+		requires std::is_same_v<
+				nvlist_t *,
+				std::remove_cvref_t<
+					std::ranges::range_value_t<Range>>>
+	auto add_nvlist_array(std::string_view name, Range &&value) -> void {
+		nvlist_add_nvlist_array(_nv,
+					std::string(name).c_str(),
+					std::ranges::data(value),
+					std::ranges::size(value));
+	}
+
+	template<std::ranges::contiguous_range Range>
+		requires std::is_same_v<
+				int,
+				std::remove_cvref_t<
+					std::ranges::range_value_t<Range>>>
+	auto add_descriptor_array(std::string_view name,
+				  Range &&value) -> void {
+		nvlist_add_descriptor_array(_nv,
+					    std::string(name).c_str(),
+					    std::ranges::data(value),
+					    std::ranges::size(value));
+	}
+
+	auto move_string(std::string_view name, char *value) -> void {
+		nvlist_move_string(_nv, std::string(name).c_str(), value);
+	}
+
+	auto move_nvlist(std::string_view name, nvl &&value) -> void {
+		nvlist_move_nvlist(_nv, std::string(name).c_str(),
+				   std::exchange(value._nv, nullptr));
+	}
+
+	auto move_descriptor(std::string_view name, int value) -> void {
+		nvlist_move_descriptor(_nv, std::string(name).c_str(), value);
+	}
+
+	auto move_binary(std::string_view name,
+			 void *value,
+			 std::size_t size) -> void {
+		nvlist_move_binary(_nv,
+				   std::string(name).c_str(),
+				   value,
+				   size);
+	}
+
+	auto move_bool_array(std::string_view name,
+			     bool *value,
+			     std::size_t nitems) -> void {
+		nvlist_move_bool_array(_nv,
+				       std::string(name).c_str(),
+				       value,
+				       nitems);
+	}
+
+	auto move_number_array(std::string_view name,
+			       uint64_t *value,
+			       std::size_t nitems) -> void {
+		nvlist_move_number_array(_nv,
+					 std::string(name).c_str(),
+					 value,
+					 nitems);
+	}
+
+	auto move_string_array(std::string_view name,
+			       char **value,
+			       std::size_t nitems) -> void {
+		nvlist_move_string_array(_nv,
+					 std::string(name).c_str(),
+					 value,
+					 nitems);
+	}
+
+	auto move_nvlist_array(std::string_view name,
+			       nvlist_t **value,
+			       std::size_t nitems) -> void {
+		nvlist_move_nvlist_array(_nv,
+					 std::string(name).c_str(),
+					 value,
+					 nitems);
+	}
+
+	auto move_descriptor_array(std::string_view name,
+				   int *value,
+				   std::size_t nitems) -> void {
+		nvlist_move_descriptor_array(_nv,
+					     std::string(name).c_str(),
+					     value,
+					     nitems);
+	}
+
+	auto get_bool(std::string_view name) const -> bool {
+		return nvlist_get_bool(_nv, std::string(name).c_str());
+	}
+
+	auto get_number(std::string_view name) const -> uint64_t {
+		return nvlist_get_number(_nv, std::string(name).c_str());
+	}
+
+	auto get_string(std::string_view name) const -> std::string_view {
+		return nvlist_get_string(_nv, std::string(name).c_str());
+	}
+
+	// TODO: don't discard const of the returned nvlist here
+	auto get_nvlist(std::string_view name) const -> nvl {
+	auto	nvlist = const_cast<nvlist_t *>(
+				nvlist_get_nvlist(_nv,
+						  std::string(name).c_str()));
+		return nvl(nvlist, false);
+	}
+
+	auto get_descriptor(std::string_view name) const -> int {
+		return nvlist_get_descriptor(_nv, std::string(name).c_str());
+	}
+
+	auto get_binary(std::string_view name) const
+		-> std::span<std::byte const> {
+	void const	*data;
+	std::size_t	 size;
+		data = nvlist_get_binary(_nv,
+					 std::string(name).c_str(),
+					 &size);
+		return {static_cast<std::byte const *>(data), size};
+	}
+
+	auto get_bool_array(std::string_view name) const
+		-> std::span<bool const> {
+	bool const	*data;
+	std::size_t	 nitems;
+		data = nvlist_get_bool_array(_nv,
+					     std::string(name).c_str(),
+					     &nitems);
+		return {data, nitems};
+	}
+
+	auto get_number_array(std::string_view name) const
+		-> std::span<std::uint64_t const> {
+	uint64_t const	*data;
+	std::size_t	 nitems;
+		data = nvlist_get_number_array(_nv,
+					       std::string(name).c_str(),
+					       &nitems);
+		return {data, nitems};
+	}
+
+	auto get_string_array(std::string_view name) const
+		-> std::span<char const * const> {
+	char const * const	*data;
+	std::size_t		 nitems;
+		data = nvlist_get_string_array(_nv,
+					       std::string(name).c_str(),
+					       &nitems);
+		return {data, nitems};
+	}
+
+	// TODO: don't discard of the returned nvlists
+	auto get_nvlist_array(std::string_view name) const
+		-> std::vector<nvl> {
+		std::size_t nitems;
+		auto data = nvlist_get_nvlist_array(_nv,
+						    std::string(name).c_str(),
+						    &nitems);
+		return {std::from_range,
+			std::span(data, nitems)
+			| std::views::transform([](auto &&nvlist) {
+				return nvl(
+					const_cast<nvlist_t *>(nvlist),
+					false);
+			})};
+	}
+
+	auto get_descriptor_array(std::string_view name) const
+		-> std::span<int const> {
+	int const	*data;
+	std::size_t	 nitems;
+		data = nvlist_get_descriptor_array(_nv,
+						   std::string(name).c_str(),
+						   &nitems);
+		return {data, nitems};
+	}
+
+	auto take_bool(std::string_view name) -> bool {
+		return nvlist_take_bool(_nv, std::string(name).c_str());
+	}
+
+	auto take_number(std::string_view name) -> uint64_t {
+		return nvlist_take_number(_nv, std::string(name).c_str());
+	}
+
+	auto take_string(std::string_view name) -> std::string {
+		return nvlist_take_string(_nv, std::string(name).c_str());
+	}
+
+	auto take_nvlist(std::string_view name) -> nvl {
+		return nvl(nvlist_take_nvlist(_nv, std::string(name).c_str()));
+	}
+
+	auto take_descriptor(std::string_view name) -> int {
+		return nvlist_take_descriptor(_nv, std::string(name).c_str());
+	}
+
+	auto take_binary(std::string_view name)
+		-> std::vector<std::byte> {
+	void		*data;
+	std::size_t	 size;
+		data = nvlist_take_binary(_nv,
+					  std::string(name).c_str(),
+					  &size);
+		auto bytes = static_cast<std::byte *>(data);
+		return {bytes, bytes + size};
+	}
+
+	auto take_bool_array(std::string_view name)
+		-> std::vector<bool> {
+	bool		*data;
+	std::size_t	 nitems;
+		data = nvlist_take_bool_array(_nv,
+					      std::string(name).c_str(),
+					      &nitems);
+		return std::vector<bool>(std::from_range,
+					 std::span(data, nitems));
+	}
+
+	auto take_number_array(std::string_view name)
+		-> std::vector<std::uint64_t>
+	{
+		std::size_t nitems;
+		auto data = free_ptr<uint64_t>(
+				nvlist_take_number_array(
+					_nv,
+					std::string(name).c_str(),
+					&nitems));
+		return {data.get(), data.get() + nitems};
+	}
+
+	auto take_string_array(std::string_view name)
+		-> std::vector<std::string>
+	{
+		std::size_t nitems;
+		auto data = free_ptr<char *>(
+				nvlist_take_string_array(
+					_nv,
+					std::string(name).c_str(),
+					&nitems));
+		return {std::from_range,
+			std::span(data.get(), nitems)
+			| std::views::transform([](auto &&s) {
+				return std::string(s);
+			})};
+	}
+
+	auto take_nvlist_array(std::string_view name)
+		-> std::vector<nvl>
+	{
+		std::size_t nitems;
+		auto data = free_ptr<nvlist_t *>(
+				nvlist_take_nvlist_array(
+					_nv,
+					std::string(name).c_str(),
+					&nitems));
+		return {std::from_range,
+			std::span(data.get(), nitems)
+			| std::views::transform([](auto &&nvlist) {
+				return nvl(nvlist);
+			})};
+	}
+
+	auto take_descriptor_array(std::string_view name)
+		-> std::vector<int>
+	{
+		std::size_t nitems;
+		auto data = free_ptr<int>(
+				nvlist_take_descriptor_array(
+					_nv,
+					std::string(name).c_str(),
+					&nitems));
+		return {data.get(), data.get() + nitems};
+	}
+
+	/*
+	 * append_* functions
+	 */
+
+	auto append_bool_array(std::string_view name, bool value)
+		-> void
+	{
+		nvlist_append_bool_array(_nv,
+					 std::string(name).c_str(),
+					 value);
+	}
+
+	auto append_number_array(std::string_view name, std::uint64_t value)
+		-> void
+	{
+		nvlist_append_number_array(_nv,
+					   std::string(name).c_str(),
+					   value);
+	}
+
+	auto append_descriptor_array(std::string_view name, int value) -> void
+	{
+		nvlist_append_descriptor_array(_nv,
+					       std::string(name).c_str(),
+					       value);
+	}
+
+	auto append_string_array(std::string_view name, std::string_view value)
+		-> void
+	{
+		nvlist_append_string_array(_nv,
+					   std::string(name).c_str(),
+					   std::string(value).c_str());
+	}
+
+	auto append_nvlist_array(std::string_view name, nvl const &nvlist)
+		-> void
+	{
+		nvlist_append_nvlist_array(_nv,
+					   std::string(name).c_str(),
+					   nvlist._nv);
+	}
+
+	/*
+	 * free_* functions
+	 */
+
+	auto free(std::string_view name) -> void {
+		nvlist_free(_nv, std::string(name).c_str());
+	}
+
+	auto free_type(std::string_view name, int type) -> void {
+		nvlist_free_type(_nv, std::string(name).c_str(), type);
+	}
+
+	auto free_null(std::string_view name) -> void {
+		nvlist_free_null(_nv, std::string(name).c_str());
+	}
+
+	auto free_bool(std::string_view name) -> void {
+		nvlist_free_bool(_nv, std::string(name).c_str());
+	}
+
+	auto free_number(std::string_view name) -> void {
+		nvlist_free_number(_nv, std::string(name).c_str());
+	}
+
+	auto free_string(std::string_view name) -> void {
+		nvlist_free_string(_nv, std::string(name).c_str());
+	}
+
+	auto free_nvlist(std::string_view name) -> void {
+		nvlist_free_nvlist(_nv, std::string(name).c_str());
+	}
+
+	auto free_descriptor(std::string_view name) -> void {
+		nvlist_free_descriptor(_nv, std::string(name).c_str());
+	}
+
+	auto free_binary(std::string_view name) -> void {
+		nvlist_free_binary(_nv, std::string(name).c_str());
+	}
+
+	auto free_bool_array(std::string_view name) -> void {
+		nvlist_free_bool_array(_nv, std::string(name).c_str());
+	}
+
+	auto free_number_array(std::string_view name) -> void {
+		nvlist_free_number_array(_nv, std::string(name).c_str());
+	}
+
+	auto free_string_array(std::string_view name) -> void {
+		nvlist_free_string_array(_nv, std::string(name).c_str());
+	}
+
+	auto free_nvlist_array(std::string_view name) -> void {
+		nvlist_free_nvlist_array(_nv, std::string(name).c_str());
+	}
+
+	auto free_descriptor_array(std::string_view name) -> void {
+		nvlist_free_descriptor_array(_nv, std::string(name).c_str());
+	}
+
+private:
+	template<typename T>
+	using free_ptr = std::unique_ptr<
+				T, decltype([](auto &&p) { ::free(p); })>;
+	using nvlist_ptr = std::unique_ptr<
+				nvlist_t,
+				decltype([](auto &&nvlist) {
+					nvlist_destroy(nvlist);
+				})>;
+
+	auto _free() -> void {
+		if (_nv && _owning)
+			nvlist_destroy(_nv);
+	}
+
+	nvlist_t *_nv;
+	bool _owning;
+};
+
+#endif	/* !NETD_NVL_H_INCLUDED */

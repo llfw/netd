@@ -1,17 +1,17 @@
 /*
  * This is free and unencumbered software released into the public domain.
- * 
+ *
  * Anyone is free to copy, modify, publish, use, compile, sell, or distribute
  * this software, either in source code form or as a compiled binary, for any
  * purpose, commercial or non-commercial, and by any means.
- * 
+ *
  * In jurisdictions that recognize copyright laws, the author or authors of
  * this software dedicate any and all copyright interest in the software to the
  * public domain. We make this dedication for the benefit of the public at
  * large and to the detriment of our heirs and successors. We intend this
  * dedication to be an overt act of relinquishment in perpetuity of all present
  * and future rights to this software under copyright law.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
@@ -20,52 +20,59 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include	<sys/queue.h>
+#ifndef	NETD_LOG_H_INCLUDED
+#define	NETD_LOG_H_INCLUDED
 
-#include	<stdlib.h>
-#include	<stdint.h>
-
-#include	"msgbus.h"
-#include	"netd.h"
-
-/* 
- * minimal implementation to make the API work.  this could obviously be much
- * more efficient.
+/*
+ * message logging (syslog and stderr).
  */
 
-typedef struct subscriber {
-	SLIST_ENTRY(subscriber)	su_entry;
-	msgbus_handler_t	su_handler;
-	msg_id_t		su_event;
-} subscriber_t;
+#include	<string>
+#include	<format>
 
-static SLIST_HEAD(subscriber_head, subscriber) subscribers
-	= SLIST_HEAD_INITIALIZER(subscribers);
+#include	"defs.hh"
 
-int
-msgbus_init(void) {
-	return 0;
+namespace nlog {
+
+enum class severity {
+	debug,
+	info,
+	warning,
+	error,
+	fatal,
+};
+
+auto log_message(severity, std::string_view message) -> void;
+
+namespace detail {
+	template<severity sev>
+	struct sev_log {
+		template<typename... Args>
+		auto operator()(std::format_string<Args...> fmt,
+				Args&&... args) const -> void {
+			auto msg = std::format(fmt,
+					       std::forward<Args>(args)...);
+			log_message(sev, msg);
+		}
+	};
 }
 
-void
-msgbus_post(msg_id_t msgid, void *udata) {
-subscriber_t	*sub;
-	SLIST_FOREACH(sub, &subscribers, su_entry) {
-		if (sub->su_event != msgid)
-			continue;
+constexpr auto fatal = detail::sev_log<severity::fatal>();
+constexpr auto error = detail::sev_log<severity::error>();
+constexpr auto warning = detail::sev_log<severity::warning>();
+constexpr auto info = detail::sev_log<severity::info>();
+constexpr auto debug = detail::sev_log<severity::debug>();
 
-		sub->su_handler(msgid, udata);
-	}
+/* get or set the log destination */
+constexpr auto syslog	= 0x1u;
+constexpr auto console	= 0x2u;
+constexpr auto destmask	= 0x3u;
+
+constexpr auto defaultdest = console;
+
+unsigned	getdest(void);
+void		setdest(unsigned);
+
 }
 
-void
-msgbus_sub(msg_id_t msg, msgbus_handler_t handler) {
-subscriber_t	*sub;
-
-	if ((sub = calloc(1, sizeof(*sub))) == NULL)
-		panic("msgbus_sub: out of memory");
-
-	sub->su_event = msg;
-	sub->su_handler = handler;
-	SLIST_INSERT_HEAD(&subscribers, sub, su_entry);
-}
+#endif	/* !NETD_LOG_H_INCLUDED */

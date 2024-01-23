@@ -4,7 +4,7 @@
 
 TARGET	= netctl
 BINDIR	= sbin
-SRCS	= netctl.c
+SRCS	= netctl.cc
 LIBS	= -lnv -lxo
 
 .include "../mk/prog.mk"

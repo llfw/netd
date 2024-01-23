@@ -20,28 +20,29 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef	NETD_NETWORK_H_INCLUDED
-#define	NETD_NETWORK_H_INCLUDED
+#include	<sys/queue.h>
 
-#include	"defs.h"
+#include	<cstdlib>
+#include	<cstdint>
 
-typedef struct network {
-	struct network *nullable	net_next;
-	char const *nonnull		net_name;
-} network_t;
+#include	<new>
+#include	<list>
 
-extern network_t *nullable networks;
+#include	"msgbus.hh"
+#include	"netd.hh"
 
 /*
- * create a new network and add it to the configuration store; returns NULL on
- * error and errno is set.
+ * minimal implementation to make the API work.  this could obviously be much
+ * more efficient.
  */
-network_t *nullable netcreate(char const *nonnull name);
 
-/* retrieve an existing network; returns NULL if not found. */
-network_t *nullable netfind(char const *nonnull name);
+// TODO: this is a no-op since the C++ conversion; decide what we want to do
+// with it.
 
-/* delete a network.  all configuration will be removed. */
-void netdelete(network_t *nonnull);
+namespace msgbus {
 
-#endif	/* !NETD_NETWORK_H_INCLUDED */
+auto init(void) -> int {
+	return 0;
+}
+
+} // namespace msgbus

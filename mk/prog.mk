@@ -8,16 +8,13 @@ default: all
 
 all: ${TARGET}
 
-OBJS=	${SRCS:.c=.o}
-
-.c.o:
-	${CC} ${CPPFLAGS} ${CFLAGS} -c $<
+OBJS=	${SRCS:S/.c$/.o/:S/.cc$/.o/}
 
 ${TARGET}: ${OBJS}
-	${CC} ${CFLAGS} ${LDFLAGS} -o ${TARGET} ${OBJS} ${LIBS}
+	${CXX} ${CFLAGS} ${LDFLAGS} -o ${TARGET} ${OBJS} ${LIBS}
 
 depend:
-	mkdep ${CPPFLAGS} ${CFLAGS} ${SRCS}
+	mkdep ${CPPFLAGS} ${CXXFLAGS} ${SRCS}
 
 clean:
 	rm -f ${TARGET} ${OBJS}
@@ -27,5 +24,6 @@ install: ${TARGET}
 	install -C ${TARGET} "${PREFIX}/${BINDIR}"
 
 .include "${.PARSEDIR}/vars.mk"
+.include "${.PARSEDIR}/rules.mk"
 
 .dinclude ".depend"

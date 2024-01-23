@@ -31,7 +31,13 @@
 #include	<sys/types.h>
 #include	<sys/socket.h>
 
-#include	"defs.h"
+#include	<functional>
+#include	<span>
+#include	<chrono>
+
+#include	"defs.hh"
+
+namespace kq {
 
 /*
  * the current time.  this is updated every time the event loop runs, before
@@ -40,36 +46,37 @@
 extern time_t current_time;
 
 /* event handler return value */
-typedef enum {
-	KQ_REARM,	/* continue listening for this event */
-	KQ_STOP,	/* stop listening */
-} kqdisp;
+enum class disp {
+	rearm,	/* continue listening for this event */
+	stop,	/* stop listening */
+};
 
 /* initialise kq */
-int		 kqinit		(void);
+int init(void);
 
 /* start the kq runner.  only returns on failure. */
-int		 kqrun		(void);
+int run(void);
 
-/* call handler(udata) at the end of the current event loop */
-typedef void (*dispatchcb) (void *nullable);
-void kqdispatch(dispatchcb nonnull handler, void *nullable udata);
+/* call handler() at the end of the current event loop */
+using dispatchcb = std::function<void ()>;
+void dispatch(dispatchcb handler);
 
 /* register an fd in kqueue.  this must be done before using it. */
-int		 kqopen		(int fd);
+int open(int fd);
 
 /* create a socket and register it with kq in a single operation */
-int		 kqsocket	(int, int, int);
+int socket(int, int, int);
 
 /* unregister an fd, close it and cancel any pending events */
-int		 kqclose	(int fd);
+int close(int fd);
 
 /*
- * register for read events on an fd.  the handler can return KQ_REARM to
- * continue listening for events, or KQ_STOP to remove the registration.
+ * register for read events on an fd.  the handler can return disp::rearm to
+ * continue listening for events, or disp::stop to remove the registration.
  */
-typedef kqdisp (*kqonreadcb) (int fd, void *nullable udata);
-int kqonread(int fd, kqonreadcb nonnull reader, void *nullable udata);
+using onreadcb = std::function<disp (int fd)>;
+int onread(int fd, onreadcb const &);
+int onread(int fd, onreadcb &&);
 
 /*
  * read data from the fd into the provided buffer and call the handler once the
@@ -79,9 +86,8 @@ int kqonread(int fd, kqonreadcb nonnull reader, void *nullable udata);
  *
  * if the handler is rearmed, the read will be repeated with the same buffer.
  */
-typedef kqdisp (*kqreadcb) (int fd, ssize_t nbytes, void *nullable udata);
-void kqread(int fd, void *nonnull buf, ssize_t bufsize,
-	    kqreadcb nonnull handler, void *nullable udata);
+using readcb = std::function<disp (int fd, ssize_t nbytes)>;
+void read(int fd, std::span<std::byte> buf, readcb);
 
 /*
  * read one message from the fd into the given buffer.  reading will continue
@@ -92,10 +98,8 @@ void kqread(int fd, void *nonnull buf, ssize_t bufsize,
  *
  * if the handler is rearmed, the read will be repeated with the same buffer.
  */
-typedef kqdisp (*kqrecvmsgcb) (int fd, ssize_t nbytes, int flags,
-			       void *nullable udata);
-void kqrecvmsg(int fd, void *nonnull buf, ssize_t bufsize,
-	       kqrecvmsgcb nonnull handler, void *nullable udata);
+using recvmsgcb = std::function<disp (int fd, ssize_t nbytes, int flags)>;
+void recvmsg(int fd, std::span<std::byte> buf, recvmsgcb handler);
 
 /*
  * wait for a connection to be ready on the given server socket, then accept it
@@ -106,23 +110,38 @@ void kqrecvmsg(int fd, void *nonnull buf, ssize_t bufsize,
  * if the accept4() call fails, client_fd will be -1, errno is set and addr is
  * NULL.
  */
-typedef kqdisp (*kqaccept4cb) (int server_fd, int client_fd,
-			       struct sockaddr *nullable addr,
-			       socklen_t addrlen,
-			       void *nullable udata);
-int kqaccept4(int server_fd, int flags, kqaccept4cb nonnull,
-	      void *nullable udata);
+using accept4cb = std::function<disp (
+				int server_fd,
+				int client_fd,
+				sockaddr *nullable addr,
+				socklen_t addrlen)>;
+int accept4(int server_fd, int flags, accept4cb);
 
 /*
- * register a timer event that fires every 'when' units, where units is one of
- * NOTE_SECONDS, NOTE_MSECONDS, NOTE_USECONDS, or NOTE_NSECONDS.  unit can also
- * be NOTE_ABSTIME, in which case the timer will be cancelled when it fires
- * regardless of the disposition return.
+ * register a timer that fires after 'duration'.  returning kq_rearm will
+ * rearm the timer with the same duration.
  */
+using reltimercb = std::function<disp ()>;
+int timer(std::chrono::nanoseconds, reltimercb);
 
-typedef kqdisp (*kqtimercb) (void *nullable udata);
-int		kqtimer		(int when, unsigned unit,
-				 kqtimercb nonnull handler,
-				 void *nullable udata);
+template<typename Rep, typename Period>
+	requires (!std::is_same_v<Period, std::nano>)
+int timer(std::chrono::duration<Rep, Period> duration,
+	    reltimercb handler) {
+	return timer(
+		std::chrono::duration_cast<
+			std::chrono::nanoseconds
+		>(duration),
+		handler);
+}
+
+/*
+ * register a timer that fires at the given time.  this timer cannot be
+ * rearmed.
+ */
+using abstimercb = std::function<void ()>;
+int timer(std::chrono::time_point<std::chrono::system_clock>, abstimercb);
+
+} // namespace kq
 
 #endif	/* !NETD_KQ_H_INCLUDED */
