@@ -23,6 +23,13 @@
 #ifndef	NETD_CTL_H_INCLUDED
 #define	NETD_CTL_H_INCLUDED
 
-int	ctl_setup(void);
+#include	<expected>
+#include	<system_error>
+
+namespace netd::ctl {
+
+[[nodiscard]] auto init(void) -> std::expected<void, std::error_code>;
+
+} // namespace netd::ctl
 
 #endif	/* !NETD_CTL_H_INCLUDED */

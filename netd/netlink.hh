@@ -33,11 +33,14 @@
 
 #include	<string>
 #include	<array>
+#include	<expected>
+#include	<memory>
+#include	<system_error>
 
 #include	"msgbus.hh"
 #include	"defs.hh"
 
-namespace netlink {
+namespace netd::netlink {
 
 /*
  * maximum size of a message we can read from netlink.
@@ -46,29 +49,35 @@ namespace netlink {
 constexpr unsigned socket_bufsize = 32 * 1024;
 
 struct socket {
+	socket() = default;
+	socket(socket &&) = default;
+	socket(socket const &) = delete;
+
+	auto operator=(socket const &) = delete;
+	auto operator=(socket &&) -> socket& = default;
+
+	~socket();
+
 	std::array<std::byte, socket_bufsize>
 				ns_buf = {};
-	int			ns_fd = 0;
+	int			ns_fd = -1;
 	std::byte * nonnull	ns_bufp = &ns_buf[0];
 	size_t			ns_bufn = 0;
 };
 
 /* initialise the netlink subsystem */
-auto init(void) -> int;
+auto init(void) -> std::expected<void, std::error_code>;
 
 /* create a new rtnetlink socket */
-auto newmem socket_create(int flags) -> socket *nullable;
+auto socket_create(int flags)
+	-> std::expected<std::unique_ptr<socket>, std::error_code>;
 
 /* send a message on a netlink socket */
-auto socket_send(socket *nonnull,
-		   struct nlmsghdr *nonnull msg,
-		   size_t msglen) -> int;
+auto socket_send(socket &, nlmsghdr *nonnull msg, size_t msglen)
+	-> std::expected<void, std::error_code>;
 
 /* receive a message on a netlink socket */
-auto socket_recv(socket *nonnull) -> struct nlmsghdr *nullable;
-
-/* close a netlink socket */
-auto socket_close(socket *nonnull) -> void;
+auto socket_recv(socket &) -> std::expected<nlmsghdr *, std::error_code>;
 
 /*
  * msgbus events
@@ -111,6 +120,6 @@ struct deladdr_data {
 };
 inline msgbus::event<deladdr_data> evt_deladdr;
 
-} // namespace netlink
+} // namespace netd::netlink
 
 #endif	/* !NETD_NETLINK_H_INCLUDED */

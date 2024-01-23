@@ -44,11 +44,12 @@
 #include	"kq.hh"
 #include	"log.hh"
 
-namespace netlink {
+namespace netd::netlink {
 
 namespace {
 
-auto nldomsg(int fd, ssize_t nbytes, socket *nonnull) -> kq::disp;
+/* the netlink reader job */
+[[nodiscard]] auto reader(std::unique_ptr<socket>) -> task<void>;
 
 void	hdl_rtm_newlink(struct nlmsghdr *nonnull);
 void	hdl_rtm_dellink(struct nlmsghdr *nonnull);
@@ -62,50 +63,44 @@ std::map<int, std::function<void (nlmsghdr *nonnull)>> handlers = {
 	{ RTM_DELADDR, hdl_rtm_deladdr },
 };
 
-int	nl_fetch_interfaces(void);
-int	nl_fetch_addresses(void);
+auto fetch_interfaces(void) -> std::expected<void, std::error_code>;
+auto fetch_addresses(void) -> std::expected<void, std::error_code>;
 
 } // anonymous namespace
 
-socket *
-socket_create(int flags) {
-socket		*ret = NULL;
-int		 err, optval;
+/*
+ * netlink::socket
+ */
+socket::~socket() {
+	if (ns_fd != -1) {
+		::close(ns_fd);
+		kq::close(ns_fd);
+	}
+}
+
+auto socket_create(int flags)
+	-> std::expected<std::unique_ptr<socket>, std::error_code> {
+int		 optval;
 socklen_t	 optlen;
 
-	if ((ret = new (std::nothrow) socket) == NULL)
-		goto err;
+	auto sock = std::make_unique<socket>();
 
-	if ((ret->ns_fd = kq::socket(AF_NETLINK, SOCK_RAW | flags,
-				     NETLINK_ROUTE)) == -1)
-		goto err;
+	auto kqfd = kq::socket(AF_NETLINK, SOCK_RAW | flags, NETLINK_ROUTE);
+	if (!kqfd)
+		return std::unexpected(kqfd.error());
+
+	sock->ns_fd = *kqfd;
 
 	optval = 1;
 	optlen = sizeof(optval);
-	if (setsockopt(ret->ns_fd, SOL_NETLINK, NETLINK_MSG_INFO,
+	if (setsockopt(sock->ns_fd, SOL_NETLINK, NETLINK_MSG_INFO,
 		       &optval, optlen) != 0)
-		goto err;
+		return std::unexpected(std::make_error_code(std::errc(errno)));
 
-	return ret;
-
-err:
-	err = errno;
-	if (ret && ret->ns_fd)
-		kq::close(ret->ns_fd);
-	delete ret;
-	errno = err;
-	return NULL;
+	return sock;
 }
 
-void
-socket_close(socket *nls) {
-	kq::close(nls->ns_fd);
-	delete nls;
-}
-
-int
-init(void) {
-struct socket	*nls = NULL;
+auto init(void) -> std::expected<void, std::error_code> {
 int		 nl_groups[] = {
 	RTNLGRP_LINK,
 	RTNLGRP_NEIGH,
@@ -116,77 +111,58 @@ int		 nl_groups[] = {
 	RTNLGRP_IPV6_ROUTE,
 };
 
-	nls = socket_create(SOCK_NONBLOCK | SOCK_CLOEXEC);
+	auto nls = socket_create(SOCK_NONBLOCK | SOCK_CLOEXEC);
 	if (!nls) {
-		nlog::fatal("nlinit: socket_create: {}",
-		     strerror(errno));
-		goto err;
+		log::fatal("netlink::init: socket_create: {}",
+			   nls.error().message());
+		return std::unexpected(nls.error());
 	}
 
 	for (unsigned i = 0; i < sizeof(nl_groups) / sizeof(*nl_groups); i++) {
 	int		optval = nl_groups[i];
 	socklen_t	optlen = sizeof(optval);
 
-		if (setsockopt(nls->ns_fd, SOL_NETLINK, NETLINK_ADD_MEMBERSHIP,
+		if (setsockopt((*nls)->ns_fd, SOL_NETLINK, NETLINK_ADD_MEMBERSHIP,
 			       &optval, optlen) == -1) {
-			nlog::fatal("nlinit: NETLINK_ADD_MEMBERSHIP: {}",
-				    strerror(errno));
-			goto err;
+			log::fatal("netlink::init: NETLINK_ADD_MEMBERSHIP: {}",
+				   strerror(errno));
+			return std::unexpected(
+				std::make_error_code(std::errc(errno)));
 		}
 	}
 
-	if (nl_fetch_interfaces() == -1) {
-		nlog::fatal("nlinit: nl_fetch_interfaces: {}",
-			    strerror(errno));
-		goto err;
+	if (auto ret = fetch_interfaces(); !ret) {
+		log::fatal("netlink::init: fetch_interfaces: {}",
+			   ret.error().message());
+		return std::unexpected(ret.error());
 	}
 
-	if (nl_fetch_addresses() == -1) {
-		nlog::fatal("nlinit: nl_fetch_addresses: {}",
-			    strerror(errno));
-		goto err;
+	if (auto ret = fetch_addresses(); !ret) {
+		log::fatal("netlink::init: fetch_addresses: {}",
+			   ret.error().message());
+		return std::unexpected(ret.error());
 	}
 
-	nls->ns_bufp = &nls->ns_buf[0];
+	(*nls)->ns_bufp = &(*nls)->ns_buf[0];
 
-	{
-		auto handler = [=](int fd, ssize_t nbytes) {
-			return nldomsg(fd, nbytes, nls);
-		};
-
-		kq::read(nls->ns_fd, std::span(nls->ns_buf), handler);
-	}
-
-	return 0;
-
-err:
-	if (nls)
-		socket_close(nls);
-
-	return -1;
+	kq::run_task(reader(std::move(*nls)));
+	return {};
 }
 
 namespace {
 
 /*
- * donlread: call when netlink data is received
+ * reader: read and process new data from the netlink socket.
  */
-auto nldomsg(int fd, ssize_t nbytes, socket *nls) -> kq::disp {
-nlmsghdr	*hdr;
 
-	(void)fd;
+auto read_message(socket &nls, std::size_t nbytes)
+	-> std::expected<void, std::error_code>
+{
+	nls.ns_bufn += nbytes;
+	auto hdr = (nlmsghdr *)nls.ns_bufp;
 
-	assert(nls);
-
-	if (nbytes < 0)
-		panic("donlread: netlink read error: %s",
-		      strerror(-(int)nbytes));
-
-	nls->ns_bufn += (size_t)nbytes;
-	hdr = (struct nlmsghdr *)nls->ns_bufp;
-
-	while (NLMSG_OK(hdr, (int)nls->ns_bufn)) {
-		nlog::debug("nlhdr len={} type={} flags={} seq={} pid={}",
+	while (NLMSG_OK(hdr, (int)nls.ns_bufn)) {
+		log::debug("nlhdr len={} type={} flags={} seq={} pid={}",
 		     hdr->nlmsg_len,
 		     hdr->nlmsg_type,
 		     hdr->nlmsg_flags,
@@ -197,68 +173,79 @@ nlmsghdr	*hdr;
 		    hdl != handlers.end())
 			hdl->second(hdr);
 
-		nls->ns_bufn -= hdr->nlmsg_len;
-		nls->ns_bufp += hdr->nlmsg_len;
-		hdr = (struct nlmsghdr *)nls->ns_bufp;
-	}
-
-	/* shift any pending data back to the start of the buffer */
-	if (nls->ns_bufn > 0) {
-		memmove(&nls->ns_buf[0], nls->ns_bufp, nls->ns_bufn);
-		nls->ns_bufp = &nls->ns_buf[0];
+		nls.ns_bufn -= hdr->nlmsg_len;
+		nls.ns_bufp += hdr->nlmsg_len;
+		hdr = (nlmsghdr *)nls.ns_bufp;
 	}
 
 	/*
-	 * issue another read here instead of using kq::rearm because we want
-	 * to read into the remaining part of the buffer.
-	 * TODO: replace this once we have a better kqread().
+	 * we only read full messages, so if we have any data left, something
+	 * went wrong with the protocol handling
 	 */
-	auto handler = [=](int fd, ssize_t nbytes) {
-		return nldomsg(fd, nbytes, nls);
-	};
-	kq::read(nls->ns_fd,
-	       std::span(nls->ns_bufp, (sizeof(nls->ns_buf) - nls->ns_bufn)),
-	       handler);
-	return kq::disp::stop;
+	if (nls.ns_bufn > 0)
+		panic("netlink::read_message: data left in buffer");
+
+	return {};
 }
 
-struct nlmsghdr *
-socket_getmsg(socket *nls) {
-struct nlmsghdr	*hdr = (struct nlmsghdr *)nls->ns_bufp;
+auto reader(std::unique_ptr<socket> nls) -> task<void> {
+	for (;;) {
+		auto ret = co_await kq::recvmsg(nls->ns_fd, nls->ns_buf);
+		if (!ret)
+			panic("netlink::reader: read error: {}",
+			      ret.error().message());
 
-	if (!NLMSG_OK(hdr, (int)nls->ns_bufn))
-		panic("netlink::socket_getmsg: data but no message");
+		if (!*ret)
+			panic("netlink::reader: EOF");
 
-	hdr = (struct nlmsghdr *)nls->ns_bufp;
-	nls->ns_bufp += hdr->nlmsg_len;
-	nls->ns_bufn -= hdr->nlmsg_len;
+		if (auto r = read_message(*nls, *ret); !r)
+			panic("netlink::reader: read_message failed: {}",
+			      r.error().message());
+	}
+
+	co_return;
+}
+
+auto socket_getmsg(socket &nls) -> std::expected<nlmsghdr *, std::error_code> {
+nlmsghdr	*hdr = (nlmsghdr *)nls.ns_bufp;
+
+	if (!NLMSG_OK(hdr, (int)nls.ns_bufn))
+		return std::unexpected(
+			std::make_error_code(std::errc(ENOMSG)));
+
+	hdr = (struct nlmsghdr *)nls.ns_bufp;
+	nls.ns_bufp += hdr->nlmsg_len;
+	nls.ns_bufn -= hdr->nlmsg_len;
 	return hdr;
 }
 
 } // anonymous namespace
 
-struct nlmsghdr *
-socket_recv(socket *nls) {
-	if (!nls->ns_bufn) {
+auto socket_recv(socket &nls)
+	-> std::expected<nlmsghdr *, std::error_code>
+{
+	if (!nls.ns_bufn) {
 	ssize_t		n;
 
-		n = read(nls->ns_fd, &nls->ns_buf[0], nls->ns_buf.size());
+		n = read(nls.ns_fd, &nls.ns_buf[0], nls.ns_buf.size());
 		if (n < 0)
-			return NULL;
+			return std::unexpected(
+				std::make_error_code(std::errc(errno)));
 
-		nls->ns_bufp = &nls->ns_buf[0];
-		nls->ns_bufn = (size_t)n;
+		nls.ns_bufp = &nls.ns_buf[0];
+		nls.ns_bufn = (size_t)n;
 	}
 
 	return socket_getmsg(nls);
 }
 
-int
-socket_send(socket *nls, struct nlmsghdr *nlmsg, size_t msglen) {
-struct iovec	iov;
-struct msghdr	msg;
+auto socket_send(socket &nls, nlmsghdr *nlmsg, size_t msglen)
+	-> std::expected<void, std::error_code>
+{
+iovec	iov;
+msghdr	msg;
 
-	nlog::debug("netlink::socket_send: send fd={}", nls->ns_fd);
+	log::debug("netlink::socket_send: send fd={}", nls.ns_fd);
 
 	iov.iov_base = nlmsg;
 	iov.iov_len = msglen;
@@ -267,10 +254,10 @@ struct msghdr	msg;
 	msg.msg_iov = &iov;
 	msg.msg_iovlen = 1;
 
-	if (sendmsg(nls->ns_fd, &msg, 0) == -1)
-		return -1;
+	if (::sendmsg(nls.ns_fd, &msg, 0) == -1)
+		return std::unexpected(std::make_error_code(std::errc(errno)));
 
-	return 0;
+	return {};
 }
 
 namespace {
@@ -278,29 +265,28 @@ namespace {
 /*
  * ask the kernel to report all existing network interfaces.
  */
-int
-nl_fetch_interfaces(void) {
-socket		*nls = NULL;
+auto fetch_interfaces(void) -> std::expected<void, std::error_code> {
 nlmsghdr	 hdr;
-nlmsghdr	*rhdr = NULL;
-int		 ret = 0;
 
-	if ((nls = socket_create(SOCK_CLOEXEC)) == NULL) {
-		ret = -1;
-		goto done;
-	}
+	auto ret = socket_create(SOCK_CLOEXEC);
+	if (!ret)
+		return std::unexpected(ret.error());
+	auto &nls = *ret;
 
 	memset(&hdr, 0, sizeof(hdr));
 	hdr.nlmsg_len = sizeof(hdr);
 	hdr.nlmsg_type = RTM_GETLINK;
 	hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
 
-	if (socket_send(nls, &hdr, sizeof(hdr)) == -1) {
-		ret = -1;
-		goto done;
-	}
+	if (auto ret = socket_send(*nls, &hdr, sizeof(hdr)); !ret)
+		return std::unexpected(ret.error());
 
-	while ((rhdr = socket_recv(nls)) != NULL) {
+	for (;;) {
+		auto ret = socket_recv(*nls);
+		if (!ret)
+			return std::unexpected(ret.error());
+		auto rhdr = *ret;
+
 		if (rhdr->nlmsg_type == NLMSG_DONE)
 			break;
 
@@ -308,39 +294,34 @@ int		 ret = 0;
 		hdl_rtm_newlink(rhdr);
 	}
 
-done:
-	if (nls)
-		socket_close(nls);
-
-	return ret;
+	return {};
 }
 
 /*
  * ask the kernel to report all existing addresses.
  */
-int
-nl_fetch_addresses(void) {
-socket		*nls = NULL;
+auto fetch_addresses(void) -> std::expected<void, std::error_code> {
 nlmsghdr	 hdr;
-nlmsghdr	*rhdr = NULL;
-int		 ret = 0;
 
-	if ((nls = socket_create(SOCK_CLOEXEC)) == NULL) {
-		ret = 1;
-		goto done;
-	}
+	auto ret = socket_create(SOCK_CLOEXEC);
+	if (!ret)
+		return std::unexpected(ret.error());
+	auto &nls = *ret;
 
 	memset(&hdr, 0, sizeof(hdr));
 	hdr.nlmsg_len = sizeof(hdr);
 	hdr.nlmsg_type = RTM_GETADDR;
 	hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
 
-	if (socket_send(nls, &hdr, sizeof(hdr)) == -1) {
-		ret = 1;
-		goto done;
-	}
+	if (auto ret = socket_send(*nls, &hdr, sizeof(hdr)); !ret)
+		return std::unexpected(ret.error());
 
-	while ((rhdr = socket_recv(nls)) != NULL) {
+	for (;;) {
+		auto ret = socket_recv(*nls);
+		if (!ret)
+			return std::unexpected(ret.error());
+		auto rhdr = *ret;
+
 		if (rhdr->nlmsg_type == NLMSG_DONE)
 			break;
 
@@ -348,11 +329,7 @@ int		 ret = 0;
 		hdl_rtm_newaddr(rhdr);
 	}
 
-done:
-	if (nls)
-		socket_close(nls);
-
-	return ret;
+	return {};
 }
 
 /* handle RTM_NEWLINK */
@@ -390,17 +367,17 @@ rtnl_link_stats64	 stats;
 	}
 
 	if (msg.nl_ifname.empty()) {
-		nlog::error("RTM_NEWLINK: no interface name?");
+		log::error("RTM_NEWLINK: no interface name?");
 		return;
 	}
 
-	nlog::debug("RTM_NEWLINK: {}<{}> nlmsg_flags={:#x} ifi_flags={:#x}"
-		    "ifi_change={:#x}",
-		    msg.nl_ifname,
-		    ifinfo->ifi_index,
-		    nlmsg->nlmsg_flags,
-		    ifinfo->ifi_flags,
-		    ifinfo->ifi_change);
+	log::debug("RTM_NEWLINK: {}<{}> nlmsg_flags={:#x} ifi_flags={:#x}"
+		   "ifi_change={:#x}",
+		   msg.nl_ifname,
+		   ifinfo->ifi_index,
+		   nlmsg->nlmsg_flags,
+		   ifinfo->ifi_flags,
+		   ifinfo->ifi_change);
 
 	msg.nl_ifindex = (unsigned)ifinfo->ifi_index;
 	msg.nl_flags = ifinfo->ifi_flags;
@@ -425,7 +402,7 @@ rtattr		*attrmsg;
 size_t		 attrlen;
 newaddr_data	 msg;
 
-	nlog::debug("RTM_NEWADDR");
+	log::debug("RTM_NEWADDR");
 
 	ifamsg = static_cast<ifaddrmsg *>(NLMSG_DATA(nlmsg));
 
@@ -446,7 +423,7 @@ newaddr_data	 msg;
 		return;
 	}
 
-	nlog::warning("received RTM_NEWADDR without an IFA_ADDRESS");
+	log::warning("received RTM_NEWADDR without an IFA_ADDRESS");
 }
 
 /* handle RTM_DELADDR */
@@ -457,7 +434,7 @@ rtattr		*attrmsg;
 size_t		 attrlen;
 deladdr_data	 msg;
 
-	nlog::debug("RTM_DELADDR");
+	log::debug("RTM_DELADDR");
 
 	ifamsg = static_cast<ifaddrmsg *>(NLMSG_DATA(nlmsg));
 
@@ -478,9 +455,9 @@ deladdr_data	 msg;
 		return;
 	}
 
-	nlog::warning("received RTM_DELADDR without an IFA_ADDRESS");
+	log::warning("received RTM_DELADDR without an IFA_ADDRESS");
 }
 
 } // anonymous namespace
 
-} // namespace netlink
+} // namespace netd::netlink

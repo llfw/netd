@@ -34,10 +34,13 @@
 #include	<functional>
 #include	<span>
 #include	<chrono>
+#include	<expected>
 
 #include	"defs.hh"
+#include	"task.hh"
+#include	"log.hh"
 
-namespace kq {
+namespace netd::kq {
 
 /*
  * the current time.  this is updated every time the event loop runs, before
@@ -55,28 +58,32 @@ enum class disp {
 int init(void);
 
 /* start the kq runner.  only returns on failure. */
-int run(void);
+auto run(void) -> std::expected<void, std::error_code>;
 
 /* call handler() at the end of the current event loop */
 using dispatchcb = std::function<void ()>;
 void dispatch(dispatchcb handler);
 
 /* register an fd in kqueue.  this must be done before using it. */
-int open(int fd);
+auto open(int fd) -> std::expected<void, std::error_code>;
 
 /* create a socket and register it with kq in a single operation */
-int socket(int, int, int);
+auto socket(int, int, int) -> std::expected<int, std::error_code>;
 
 /* unregister an fd, close it and cancel any pending events */
 int close(int fd);
+
+/******************************************************************************
+ * synchronous interface
+ */
 
 /*
  * register for read events on an fd.  the handler can return disp::rearm to
  * continue listening for events, or disp::stop to remove the registration.
  */
 using onreadcb = std::function<disp (int fd)>;
-int onread(int fd, onreadcb const &);
-int onread(int fd, onreadcb &&);
+auto onread(int fd, onreadcb const &) -> std::expected<void, std::error_code>;
+auto  onread(int fd, onreadcb &&) -> std::expected<void, std::error_code>;
 
 /*
  * read data from the fd into the provided buffer and call the handler once the
@@ -90,48 +97,18 @@ using readcb = std::function<disp (int fd, ssize_t nbytes)>;
 void read(int fd, std::span<std::byte> buf, readcb);
 
 /*
- * read one message from the fd into the given buffer.  reading will continue
- * until either the entire message is read, or the buffer is full.  if
- * successful, nbytes is set to the size of the message and flags contains the
- * recvmsg msg_flags field.  otherwise, nbytes is set to -errno and flags is
- * undefined.
- *
- * if the handler is rearmed, the read will be repeated with the same buffer.
- */
-using recvmsgcb = std::function<disp (int fd, ssize_t nbytes, int flags)>;
-void recvmsg(int fd, std::span<std::byte> buf, recvmsgcb handler);
-
-/*
- * wait for a connection to be ready on the given server socket, then accept it
- * and pass it to the callback.  the arguments are as described in accept4(2).
- *
- * the fd will have kqopen() called on it automatically.
- *
- * if the accept4() call fails, client_fd will be -1, errno is set and addr is
- * NULL.
- */
-using accept4cb = std::function<disp (
-				int server_fd,
-				int client_fd,
-				sockaddr *nullable addr,
-				socklen_t addrlen)>;
-int accept4(int server_fd, int flags, accept4cb);
-
-/*
  * register a timer that fires after 'duration'.  returning kq_rearm will
  * rearm the timer with the same duration.
  */
 using reltimercb = std::function<disp ()>;
-int timer(std::chrono::nanoseconds, reltimercb);
+auto timer(std::chrono::nanoseconds, reltimercb)
+	-> std::expected<void, std::error_code>;
 
 template<typename Rep, typename Period>
 	requires (!std::is_same_v<Period, std::nano>)
-int timer(std::chrono::duration<Rep, Period> duration,
-	    reltimercb handler) {
+auto timer(std::chrono::duration<Rep, Period> duration, reltimercb handler) {
 	return timer(
-		std::chrono::duration_cast<
-			std::chrono::nanoseconds
-		>(duration),
+		std::chrono::duration_cast<std::chrono::nanoseconds>(duration),
 		handler);
 }
 
@@ -142,6 +119,75 @@ int timer(std::chrono::duration<Rep, Period> duration,
 using abstimercb = std::function<void ()>;
 int timer(std::chrono::time_point<std::chrono::system_clock>, abstimercb);
 
-} // namespace kq
+/******************************************************************************
+ * async (coroutine) interface.
+ */
+
+/*
+ * start an async task in the background.  the task will run until completion,
+ * then be destroyed.
+ */
+auto run_task(task<void> &&task) -> void;
+
+/*
+ * suspend until the given fd becomes readable.
+ */
+struct wait_readable {
+	int _fd;
+
+	explicit wait_readable(int fd)
+	: _fd(fd)
+	{ }
+
+	auto await_ready() -> bool {
+		log::debug("wait_readable: await_ready() this={}",
+			   static_cast<void *>(this));
+		return false;
+	}
+
+	template <typename P>
+	auto await_suspend(std::coroutine_handle<P> coro) -> bool {
+		log::debug("wait_readable: await_suspend() this={}",
+			   static_cast<void *>(this));
+
+		onread(_fd, [coro = std::move(coro)] (int) {
+			log::debug("wait_readable: onread() callback");
+
+			dispatch([coro = std::move(coro)] {
+				log::debug("wait_readable: dispatched");
+				coro.resume();
+			});
+
+			return disp::stop;
+		});
+
+		return true;
+	}
+
+	void await_resume() {
+		log::debug("wait_readable: await_resume() this={}",
+			   static_cast<void *>(this));
+	}
+};
+
+/*
+ * read a single message into the provided buffer.  returns the size of the
+ * message read, or error.  if the buffer is too small to hold the message, the
+ * message is discarded and ENOSPC is returned.
+ */
+[[nodiscard]] auto recvmsg(int fd, std::span<std::byte> buf) ->
+	task<std::expected<std::size_t, std::error_code>>;
+
+/*
+ * accept a connection on the given server socket.  the arguments are as
+ * described in accept4(2).
+ *
+ * the fd will have kq::open() called on it automatically.
+ */
+[[nodiscard]]
+auto accept4(int server_fd, sockaddr *, socklen_t *, int flags)
+	-> task<std::expected<int, std::error_code>>;
+
+} // namespace netd::kq
 
 #endif	/* !NETD_KQ_H_INCLUDED */

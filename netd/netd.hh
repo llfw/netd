@@ -24,15 +24,20 @@
 #define NETD_NETD_H
 
 #include	<cstdarg>
+#include	<string>
+#include	<format>
 
-#include	<paths.h>
-
-#include	"defs.hh"
-
-#define	ASIZE(a)	(sizeof(a) / sizeof(*(a)))
+namespace netd {
 
 /* log a message at the highest priority and immediately abort */
-_Noreturn void	vpanic(char const * nonnull str, va_list args);
-_Noreturn void	panic(char const * nonnull str, ...);
+_Noreturn auto _panic(std::string_view) -> void;
+
+template<typename... Args>
+auto panic(std::format_string<Args...> fmt, Args&&... args) -> void {
+	auto msg = std::format(fmt, std::forward<Args>(args)...);
+	_panic(msg);
+}
+
+} // namespace netd
 
 #endif	/* !NETD_NETD_H */

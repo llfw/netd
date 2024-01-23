@@ -32,7 +32,7 @@
 
 #include	"defs.hh"
 
-namespace nlog {
+namespace netd::log {
 
 enum class severity {
 	debug,
@@ -73,6 +73,6 @@ constexpr auto defaultdest = console;
 unsigned	getdest(void);
 void		setdest(unsigned);
 
-}
+} // namespace netd::log
 
 #endif	/* !NETD_LOG_H_INCLUDED */

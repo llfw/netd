@@ -38,11 +38,13 @@
 #include	"db.hh"
 #include	"defs.hh"
 
+namespace netd::iface {
+
 /*
  * manage running interfaces.
  */
 
-int	iface_init(void);
+auto init(void) -> int;
 
 /* an address assigned to an interface */
 struct ifaddr {
@@ -96,5 +98,7 @@ extern std::map<std::string, interface *nonnull> interfaces;
 /* find an existing interface */
 auto find_interface_byname(std::string_view name) -> interface *nullable;
 auto find_interface_byindex(unsigned int ifindex) -> interface *nullable;
+
+} // namespace netd::iface
 
 #endif	/* !NETD_IFACE_H_INCLUDED */

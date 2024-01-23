@@ -48,57 +48,63 @@
 #include	"network.hh"
 #include	"nvl.hh"
 
-typedef struct ctlclient {
+namespace netd::ctl {
+
+struct ctlclient {
 	int	cc_fd = 0;
 	std::array<std::byte, proto::max_msg_size>
 		cc_buf = {};
-} ctlclient_t;
+};
 
-using cmdhandler = std::function<void (ctlclient_t *, nvl const &)>;
+using cmdhandler = std::function<task<void> (ctlclient &, nvl const &)>;
 
 struct chandler {
 	std::string_view	ch_cmd;
 	cmdhandler		ch_handler;
 };
 
-auto send_error(ctlclient_t *nonnull, std::string_view) -> void;
-auto send_success(ctlclient_t *nonnull, std::string_view = {}) -> void;
-auto send_syserr(ctlclient_t *nonnull, std::string_view) -> void;
+[[nodiscard]] auto send_error(ctlclient &, std::string_view) -> task<void>;
+[[nodiscard]] auto send_success(ctlclient &, std::string_view = {}) -> task<void>;
+[[nodiscard]] auto send_syserr(ctlclient &, std::string_view) -> task<void>;
 
 /*
  * command handlers
  */
 
-static void h_intf_list(ctlclient_t *, nvl const &);
-static void h_net_create(ctlclient_t *, nvl const &);
-static void h_net_delete(ctlclient_t *, nvl const &);
-static void h_net_list(ctlclient_t *, nvl const &);
+namespace {
 
-static std::vector<chandler> chandlers{
+[[nodiscard]] auto h_intf_list(ctlclient &, nvl const &) -> task<void>;
+[[nodiscard]] auto h_net_create(ctlclient &, nvl const &) -> task<void>;
+[[nodiscard]] auto h_net_delete(ctlclient &, nvl const &) -> task<void>;
+[[nodiscard]] auto h_net_list(ctlclient &, nvl const &) -> task<void>;
+
+std::vector<chandler> chandlers{
 	{ proto::cc_getifs,	h_intf_list	},
 	{ proto::cc_getnets,	h_net_list	},
 	{ proto::cc_newnet,	h_net_create	},
 	{ proto::cc_delnet,	h_net_delete	},
 };
 
-static kq::disp	readclient	(int fd, ssize_t, int, ctlclient *);
-static kq::disp	acceptclient	(int, int, struct sockaddr * nullable,
-				 socklen_t);
-static void	clientcmd	(ctlclient_t *nonnull client, nvl const &cmd);
+[[nodiscard]] auto listener(int fd) -> task<void>;
+[[nodiscard]] auto client_handler(std::unique_ptr<ctlclient>) -> task<void>;
+[[nodiscard]] auto clientcmd(ctlclient &, nvl const &cmd) -> task<void>;
 
-int
-ctl_setup(void) {
-struct sockaddr_un	sun;
-int			sock = -1;
-std::string		path(proto::socket_path); // for unlink
+} // anonymous namespace
 
+auto init() -> std::expected<void, std::error_code> {
+sockaddr_un	sun;
+std::string	path(proto::socket_path); // for unlink
+
+	// TODO: close socket on error
 	(void) unlink(path.c_str());
 
-	if ((sock = kq::socket(AF_UNIX,
+	auto sock = kq::socket(AF_UNIX,
 			       SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC,
-			       0)) == -1) {
-		nlog::fatal("ctl_setup: socket: {}", strerror(errno));
-		goto err;
+			       0);
+
+	if (!sock) {
+		log::fatal("ctl::init: socket: {}", sock.error().message());
+		return std::unexpected(sock.error());
 	}
 
 	memset(&sun, 0, sizeof(sun));
@@ -106,134 +112,105 @@ std::string		path(proto::socket_path); // for unlink
 	assert(proto::socket_path.size() < sizeof(sun.sun_path));
 	std::ranges::copy(proto::socket_path, &sun.sun_path[0]);
 
-	if (bind(sock,
+	if (bind(*sock,
 		 (struct sockaddr *)&sun,
 		 (socklen_t)SUN_LEN(&sun)) == -1) {
-		nlog::fatal("ctl_setup: bind: {}", strerror(errno));
-		goto err;
+		log::fatal("ctl::init: bind: {}", strerror(errno));
+		return std::unexpected(std::make_error_code(std::errc(errno)));
 	}
 
-	if (listen(sock, 128) == -1) {
-		nlog::fatal("ctl_setup: listen: {}", strerror(errno));
-		goto err;
+	if (listen(*sock, 128) == -1) {
+		log::fatal("ctl::init: listen: {}", strerror(errno));
+		return std::unexpected(std::make_error_code(std::errc(errno)));
 	}
 
-	if (kq::accept4(sock,
-			SOCK_CLOEXEC | SOCK_NONBLOCK,
-			acceptclient) == -1) {
-		nlog::fatal("ctl_setup: kqaccept4: {}",
-		     strerror(errno));
-		goto err;
-	}
-
-	nlog::debug("ctl_setup: listening on {}", path);
-	return 0;
-
-err:
-	if (sock != -1)
-		kq::close(sock);
-	return -1;
+	kq::run_task(listener(*sock));
+	log::debug("ctl::init: listening on {}", path);
+	return {};
 }
 
-static kq::disp
-acceptclient(int lsnfd, int fd, struct sockaddr *addr, socklen_t addrlen) {
-ctlclient_t	*client = NULL;
+namespace {
 
-	(void)lsnfd;
-	(void)addr;
-	(void)addrlen;
+auto listener(int sfd) -> task<void> {
+	for (;;) {
+		auto fd = co_await kq::accept4(sfd, nullptr, nullptr,
+					       SOCK_NONBLOCK | SOCK_CLOEXEC);
+		if (!fd)
+			panic("ctl::listener: accept failed: {}",
+			      fd.error().message());
 
-	if (fd == -1)
-		panic("acceptclient: accept failed: %s", strerror(errno));
+		auto client = std::make_unique<ctlclient>();
+		client->cc_fd = *fd;
+		log::debug("acceptclient: new client fd={}", client->cc_fd);
 
-	if ((client = new (std::nothrow) ctlclient) == NULL)
-		goto err;
-
-	client->cc_fd = fd;
-
-	{
-		auto handler = [=] (int fd, ssize_t nbytes, int flags) {
-			return readclient(fd, nbytes, flags, client);
-		};
-		kq::recvmsg(client->cc_fd,
-			    std::span(client->cc_buf),
-			    handler);
+		kq::run_task(client_handler(std::move(client)));
 	}
 
-	nlog::debug("acceptclient: new client fd={}", client->cc_fd);
-	return kq::disp::rearm;
-
-err:
-	if (client) {
-		if (client->cc_fd != -1)
-			kq::close(client->cc_fd);
-		delete client;
-	}
-	return kq::disp::rearm;
+	co_return;
 }
 
 /*
- * read a command from the given client and execute it.
+ * main task for handling a client.
  */
-static kq::disp
-readclient(int, ssize_t nbytes, int flags, ctlclient *client) {
-	// TODO: close the client on error
+auto client_handler(std::unique_ptr<ctlclient> client) -> task<void> {
+	log::debug("client_handler: starting, fd={}", client->cc_fd);
 
-	if (nbytes == 0)
-		// client disconnected
-		return kq::disp::stop;
-
-	if (nbytes < 0) {
-		nlog::debug("readclient: kqrecvmsg: {}", strerror(errno));
-		return kq::disp::stop;
+	/* read the command */
+	auto nbytes = co_await kq::recvmsg(client->cc_fd, client->cc_buf);
+	if (!nbytes) {
+		log::warning("client read error: {}",
+			     nbytes.error().message());
+		co_return;
 	}
 
-	assert(client);
-	assert(flags & MSG_EOR);
+	if (!*nbytes) {
+		log::warning("client disconnected");
+		co_return;
+	}
 
-	nlog::debug("readclient: fd={}", client->cc_fd);
+	log::debug("client_handler: msg size={}", *nbytes);
 
-	auto bytes = std::span(client->cc_buf).subspan(0, std::size_t(nbytes));
-	auto cmd = nvl::unpack(bytes, 0);
+	auto msgbytes = std::span(client->cc_buf).subspan(0, *nbytes);
+
+	auto cmd = nvl::unpack(msgbytes, 0);
 	if (!cmd) {
-		nlog::debug("readclient: nvl::unpack: {}",
-		     cmd.error().message());
-		return kq::disp::stop;
+		log::debug("readclient: nvl::unpack: {}",
+			   cmd.error().message());
+		co_return;
 	}
 
 	// TODO: is this check necessary?
 	if (auto error = cmd->error(); error) {
-		nlog::debug("readclient: nvlist error: {}", error->message());
-		return kq::disp::stop;
+		log::debug("readclient: nvlist error: {}", error->message());
+		co_return;
 	}
 
-	clientcmd(client, *cmd);
+	co_await clientcmd(*client, *cmd);
 
-	kq::close(client->cc_fd);
-	delete client;
-	return kq::disp::stop;
+	log::debug("client_handler: done");
+	co_return;
 }
 
 /*
  * handle a command from a client and reply to it.
  */
-static void
-clientcmd(ctlclient_t *client, nvl const &cmd)
+
+auto clientcmd(ctlclient &client, nvl const &cmd) -> task<void>
 {
 	if (!cmd.exists_string(proto::cp_cmd)) {
-		nlog::debug("clientcmd: missing cp_cmd");
-		return;
+		log::debug("clientcmd: missing cp_cmd");
+		co_return;
 	}
 
 	auto cmdname = cmd.get_string(proto::cp_cmd);
-	nlog::debug("clientcmd: cmd={}", std::string(cmdname));
+	log::debug("clientcmd: cmd={}", std::string(cmdname));
 
 	for (auto handler : chandlers) {
 		if (cmdname != handler.ch_cmd)
 			continue;
 
-		handler.ch_handler(client, cmd);
-		return;
+		co_await handler.ch_handler(client, cmd);
+		co_return;
 	}
 
 	/* TODO: unknown command, send an error */
@@ -242,23 +219,23 @@ clientcmd(ctlclient_t *client, nvl const &cmd)
 /*
  * send the given response to the client.
  */
-static void
-send_response(ctlclient_t *client, nvl const &resp) {
-struct msghdr	 mhdr;
-struct iovec	 iov;
-ssize_t		 n;
+
+auto send_response(ctlclient &client, nvl const &resp) -> task<void> {
+msghdr	 mhdr;
+iovec	 iov;
+ssize_t	 n;
 
 	if (auto error = resp.error(); error) {
-		nlog::debug("send_response: nvlist error: {}",
-		     error->message());
-		return;
+		log::debug("send_response: nvlist error: {}",
+			   error->message());
+		co_return;
 	}
 
 	auto rbuf = resp.pack();
 	if (!rbuf) {
-		nlog::debug("send_response: nvlist_pack failed: {}",
-		     rbuf.error().message());
-		return;
+		log::debug("send_response: nvlist_pack failed: {}",
+			   rbuf.error().message());
+		co_return;
 	}
 
 	iov.iov_base = rbuf->data();
@@ -269,18 +246,19 @@ ssize_t		 n;
 	mhdr.msg_iovlen = 1;
 
 	/* TODO: assume this won't block for now */
-	n = ::sendmsg(client->cc_fd, &mhdr, MSG_EOR);
+	n = ::sendmsg(client.cc_fd, &mhdr, MSG_EOR);
 	if (n == -1)
-		nlog::debug("send_response: sendmsg: {}", strerror(errno));
+		log::debug("send_response: sendmsg: {}", strerror(errno));
+	co_return;
 }
+
+} // anonymous namespace
 
 /*
  * send a success response to the client, with optional STATUS_INFO.
  */
-auto send_success(ctlclient_t *nonnull client, std::string_view info) -> void
+auto send_success(ctlclient &client, std::string_view info) -> task<void>
 {
-	assert(client);
-
 	auto resp = nvl();
 
 	resp.add_string(proto::cp_status, proto::cv_status_success);
@@ -288,47 +266,44 @@ auto send_success(ctlclient_t *nonnull client, std::string_view info) -> void
 		resp.add_string(proto::cp_status_info, info);
 
 	if (auto error = resp.error(); error) {
-		nlog::error("send_success: nvl pack error: {}",
-		     error->message());
-		return;
+		log::error("send_success: nvl pack error: {}",
+			   error->message());
+		co_return;
 	}
 
-	send_response(client, resp);
+	co_await send_response(client, resp);
 }
 
 /*
  * send an error response to the client.
  */
-auto send_error(ctlclient_t *nonnull client, std::string_view error) -> void {
-	assert(client);
-
+auto send_error(ctlclient &client, std::string_view error) -> task<void> {
 	auto resp = nvl();
 	resp.add_string(proto::cp_status, proto::cv_status_error);
 	resp.add_string(proto::cp_status_info, error);
 
-	send_response(client, resp);
+	co_await send_response(client, resp);
 }
 
 /*
  * send a syserr response to the client.
  */
-auto send_syserr(ctlclient_t *nonnull client, std::string_view syserr)
-	-> void
+auto send_syserr(ctlclient &client, std::string_view syserr) -> task<void>
 {
-	assert(client);
-
 	auto resp = nvl();
 	resp.add_string(proto::cp_status, proto::cv_status_error);
 	resp.add_string(proto::cp_status_info, proto::ce_syserr);
 	resp.add_string(proto::cp_status_syserr, syserr);
 
-	send_response(client, resp);
+	co_await send_response(client, resp);
 }
 
-auto h_intf_list(ctlclient_t *client, nvl const &/*cmd*/) -> void {
+namespace {
+
+auto h_intf_list(ctlclient &client, nvl const &/*cmd*/) -> task<void> {
 	auto resp = nvl();
 
-	for (auto &&[name, intf] : interfaces) {
+	for (auto &&[name, intf] : iface::interfaces) {
 	uint64_t	 operstate, adminstate;
 
 		auto nvint = nvl();
@@ -375,32 +350,32 @@ auto h_intf_list(ctlclient_t *client, nvl const &/*cmd*/) -> void {
 		nvint.add_number(proto::cp_iface_admin, adminstate);
 
 		if (auto error = nvint.error(); error) {
-			nlog::error("h_intf_list: nvl: {}", error->message());
-			return;
+			log::error("h_intf_list: nvl: {}", error->message());
+			co_return;
 		}
 
 		resp.append_nvlist_array(proto::cp_iface, nvint);
 	}
 
 	if (auto error = resp.error(); error) {
-		nlog::error("h_intf_list: resp: {}", error->message());
-		return;
+		log::error("h_intf_list: resp: {}", error->message());
+		co_return;
 	}
 
-	send_response(client, resp);
+	co_await send_response(client, resp);
+	co_return;
 }
 
-static void
-h_net_list(ctlclient_t *client, nvl const &/*cmd*/) {
+auto h_net_list(ctlclient &client, nvl const &/*cmd*/) -> task<void> {
 	auto resp = nvl();
 
-	for (auto &&[name, net] : networks) {
+	for (auto &&[name, net] : network::networks) {
 		auto nvnet = nvl();
 
 		nvnet.add_string(proto::cp_net_name, net->name());
 		if (auto error = nvnet.error(); error) {
-			nlog::error("h_net_list: nvl: {}", error->message());
-			return;
+			log::error("h_net_list: nvl: {}", error->message());
+			co_return;
 		}
 
 		resp.append_nvlist_array(proto::cp_nets, nvnet);
@@ -408,46 +383,53 @@ h_net_list(ctlclient_t *client, nvl const &/*cmd*/) {
 
 
 	if (auto error = resp.error(); error) {
-		nlog::error("h_net_list: resp: {}", error->message());
-		return;
+		log::error("h_net_list: resp: {}", error->message());
+		co_return;
 	}
 
-	send_response(client, resp);
+	co_await send_response(client, resp);
+	co_return;
 }
 
-auto h_net_create(ctlclient_t *client, nvl const &cmd) -> void {
+auto h_net_create(ctlclient &client, nvl const &cmd) -> task<void> {
 	if (!cmd.exists_string(proto::cp_newnet_name)) {
-		send_error(client, proto::ce_proto);
-		return;
+		co_await send_error(client, proto::ce_proto);
+		co_return;
 	}
 
 	auto netname = cmd.get_string(proto::cp_newnet_name);
 	if (netname.size() > proto::cn_maxnetnam) {
-		send_error(client, proto::ce_netnmln);
-		return;
+		co_await send_error(client, proto::ce_netnmln);
+		co_return;
 	}
 
-	if (netcreate(netname) == NULL)
-		send_syserr(client, strerror(errno));
+	if (network::create(netname) == NULL)
+		co_await send_syserr(client, strerror(errno));
 
-	send_success(client);
+	co_await send_success(client);
+	co_return;
 }
 
 
-auto h_net_delete(ctlclient_t *client, nvl const &cmd) -> void {
+auto h_net_delete(ctlclient &client, nvl const &cmd) -> task<void> {
 	if (!cmd.exists_string(proto::cp_delnet_name)) {
-		send_error(client, proto::ce_proto);
-		return;
+		co_await send_error(client, proto::ce_proto);
+		co_return;
 	}
 
 	auto netname = cmd.get_string(proto::cp_newnet_name);
-	auto *net = netfind(netname);
+	auto *net = network::find(netname);
 
 	if (net == nullptr) {
-		send_error(client, proto::ce_netnx);
-		return;
+		co_await send_error(client, proto::ce_netnx);
+		co_return;
 	}
 
-	netdelete(net);
-	send_success(client);
+	network::remove(net);
+	co_await send_success(client);
+	co_return;
 }
+
+} // anonymous namespace
+
+} // namespace netd::ctl

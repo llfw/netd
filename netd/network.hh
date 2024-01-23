@@ -25,8 +25,12 @@
 
 #include	<string>
 #include	<map>
+#include	<expected>
+#include	<system_error>
 
 #include	"defs.hh"
+
+namespace netd::network {
 
 /*
  * a network we know about, i.e. a layer 3 (IP) configuration which can be
@@ -53,15 +57,17 @@ private:
 extern std::map<std::string_view, network *> networks;
 
 /*
- * create a new network and add it to the configuration store; returns NULL on
- * error and errno is set.
+ * create a new network and add it to the configuration store.
  */
-network *nullable netcreate(std::string_view name);
+auto create(std::string_view name)
+	-> std::expected<network *, std::error_code>;
 
 /* retrieve an existing network; returns NULL if not found. */
-network *nullable netfind(std::string_view name);
+auto find(std::string_view name) -> network *nullable;
 
 /* delete a network.  all configuration will be removed. */
-void netdelete(network *nonnull);
+auto remove(network *nonnull) -> void;
+
+} // namespace netd::network
 
 #endif	/* !NETD_NETWORK_H_INCLUDED */

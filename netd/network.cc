@@ -30,10 +30,11 @@
 #include	"netd.hh"
 #include	"network.hh"
 
+namespace netd::network {
+
 std::map<std::string_view, network *> networks;
 
-network *
-netfind(std::string_view name) {
+auto find(std::string_view name) -> network * {
 	if (auto it = networks.find(name); it != networks.end())
 		return it->second;
 
@@ -41,26 +42,24 @@ netfind(std::string_view name) {
 	return NULL;
 }
 
-network *
-netcreate(std::string_view name) {
+auto create(std::string_view name)
+	-> std::expected<network *, std::error_code>
+{
 struct network	*net;
 
-	if (netfind(name) != NULL) {
-		errno = EEXIST;
-		return NULL;
-	}
+	if (find(name) != NULL)
+		return std::unexpected(
+			std::make_error_code(std::errc(EEXIST)));
 
-	if ((net = new (std::nothrow) network(name)) == NULL) {
-		errno = ENOMEM;
-		return NULL;
-	}
+	if ((net = new (std::nothrow) network(name)) == NULL)
+		return std::unexpected(
+			std::make_error_code(std::errc(ENOMEM)));
 
 	networks.emplace(net->name(), net);
 	return net;
 }
 
-void
-netdelete(network *nonnull net) {
+auto remove(network *nonnull net) -> void {
 	assert(net);
 
 	for (auto &&it : networks) {
@@ -71,5 +70,7 @@ netdelete(network *nonnull net) {
 		return;
 	}
 
-	panic("netdelete: trying to remove non-existing network");
+	panic("network::remove: trying to remove non-existing network");
 }
+
+} // namespace netd::network

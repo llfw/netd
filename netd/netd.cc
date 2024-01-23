@@ -40,23 +40,20 @@
 #include	"iface.hh"
 #include	"network.hh"
 
-void
-vpanic(char const *str, va_list args) {
-	fputs("panic: ", stderr);
-	vfprintf(stderr, str, args);
-	fputs("\n", stderr);
+namespace netd {
+
+auto _panic(std::string_view msg) -> void {
+	std::print(stderr, "panic: {}", msg);
+	std::fflush(stderr);
 	abort();
 }
 
-void
-panic(char const *str, ...) {
-va_list	ap;
-	va_start(ap, str);
-	vpanic(str, ap);
-}
+} // namespace netd
 
 int
 main(int argc, char **argv) {
+	using namespace netd;
+
 	time(&kq::current_time);
 
 	if (argc != 1) {
@@ -64,15 +61,15 @@ main(int argc, char **argv) {
 		return 1;
 	}
 
-	nlog::info("starting");
+	log::info("starting");
 
 	if (kq::init() == -1) {
-		nlog::fatal("kqinit: {}", strerror(errno));
+		log::fatal("kqinit: {}", strerror(errno));
 		return 1;
 	}
 
 	if (msgbus::init() == -1) {
-		nlog::fatal("msgbus init failed: {}", strerror(errno));
+		log::fatal("msgbus init failed: {}", strerror(errno));
 		return 1;
 	}
 
@@ -80,23 +77,23 @@ main(int argc, char **argv) {
 	 * iface has to be initialised before netlink so it can receive
 	 * netlink's boot-time newlink/newaddr messages.
 	 */
-	if (iface_init() == -1) {
-		nlog::fatal("iface init failed: {}", strerror(errno));
+	if (iface::init() == -1) {
+		log::fatal("iface init failed: {}", strerror(errno));
 		return 1;
 	}
 
-	if (netlink::init() == -1) {
-		nlog::fatal("netlink init failed: {}", strerror(errno));
+	if (auto ret = netlink::init(); !ret) {
+		log::fatal("netlink init failed: {}", ret.error().message());
 		return 1;
 	}
 
-	if (ctl_setup() == -1) {
-		nlog::fatal( "ctl init failed: {}", strerror(errno));
+	if (auto ret = ctl::init(); !ret) {
+		log::fatal("ctl init failed: {}", ret.error().message());
 		return 1;
 	}
 
-	if (kq::run() == -1) {
-		nlog::fatal("kqrun: {}", strerror(errno));
+	if (auto ret = kq::run(); !ret) {
+		log::fatal("kqrun: {}", ret.error().message());
 		return 1;
 	}
 

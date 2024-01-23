@@ -32,11 +32,13 @@
 #include	"netd.hh"
 #include	"kq.hh"
 
+namespace netd::log {
+
 using namespace std::literals;
 
 namespace {
 
-unsigned logdest = nlog::defaultdest;
+unsigned logdest = defaultdest;
 
 struct loglevel {
 	std::string_view	ll_name;
@@ -70,8 +72,6 @@ auto log_syslog(loglevel  level, std::string_view message) -> void {
 
 } // anonymous namespace
 
-namespace nlog {
-
 unsigned
 getdest(void) {
 	return logdest;
@@ -99,4 +99,4 @@ auto log_message(severity sev, std::string_view message) -> void {
 		log_console(level, message);
 }
 
-} // namespace nlog
+} // namespace netd::log

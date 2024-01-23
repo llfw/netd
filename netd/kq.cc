@@ -39,7 +39,7 @@
 #include	"kq.hh"
 #include	"log.hh"
 
-namespace kq {
+namespace netd::kq {
 
 time_t current_time;
 
@@ -71,15 +71,15 @@ namespace {
 static std::vector<dispatchcb> jobs;
 
 disp kqdoread(int fd, void *nullable udata);
-disp kqdorecvmsg(int fd, void *nullable udata);
 
 void
 dispatch(dispatchcb handler) {
 	jobs.emplace_back(handler);
 }
 
-static void
-runjobs(void) {
+namespace {
+
+auto runjobs(void) -> void {
 	/* the job list can be appended to while we're iterating */
 	for (std::size_t i = 0; i < jobs.size(); ++i)
 		jobs[i]();
@@ -87,8 +87,9 @@ runjobs(void) {
 	jobs.clear();
 }
 
-int
-open(int fd) {
+}
+
+auto open(int fd) -> std::expected<void, std::error_code> {
 size_t	elem = (size_t)fd;
 
 	if (elem >= kq.kq_fdtable.size())
@@ -96,18 +97,19 @@ size_t	elem = (size_t)fd;
 
 	assert(!KFD_IS_OPEN(&kq.kq_fdtable[elem]));
 	kq.kq_fdtable[elem].kf_flags = KQF_OPEN;
-	return 0;
+	return {};
 }
 
-int
-socket(int domain, int type, int protocol) {
+auto socket(int domain, int type, int protocol)
+	-> std::expected<int, std::error_code>
+{
 int	fd;
 	if ((fd = ::socket(domain, type, protocol)) == -1)
-		return -1;
+		return std::unexpected(std::make_error_code(std::errc(errno)));
 
-	if (open(fd) == -1) {
+	if (auto ret = open(fd); !ret) {
 		::close(fd);
-		return -1;
+		return std::unexpected(ret.error());
 	}
 
 	return fd;
@@ -143,8 +145,7 @@ init(void) {
 	return 0;
 }
 
-int
-onread(int fd, onreadcb &&readh) {
+auto onread(int fd, onreadcb &&readh) -> std::expected<void, std::error_code> {
 struct kevent	 ev;
 kqfd		*kfd;
 
@@ -160,13 +161,14 @@ kqfd		*kfd;
 	ev.udata = (void *)(uintptr_t)fd;
 
 	if (kevent(kq.kq_fd, &ev, 1, NULL, 0, NULL) != 0)
-		return -1;
+		return std::unexpected(std::make_error_code(std::errc(errno)));
 
-	return 0;
+	return {};
 }
 
-int
-onread(int fd, onreadcb const &readh) {
+auto onread(int fd, onreadcb const &readh)
+	-> std::expected<void, std::error_code>
+{
 	auto readcopy = readh;
 	return onread(fd, std::move(readcopy));
 }
@@ -180,13 +182,14 @@ struct reltimer {
 	std::chrono::nanoseconds	rt_duration;
 };
 
-int
-timer(std::chrono::nanoseconds when, reltimercb callback) {
+auto timer(std::chrono::nanoseconds when, reltimercb callback)
+	-> std::expected<void, std::error_code>
+{
 struct kevent	 ev;
 reltimer	*timer;
 
 	if ((timer = new (std::nothrow) reltimer) == NULL)
-		return -1;
+		return std::unexpected(std::make_error_code(std::errc(ENOMEM)));
 
 	timer->rt_callback = callback;
 	timer->rt_duration = when;
@@ -202,9 +205,9 @@ reltimer	*timer;
 	ev.udata = timer;
 
 	if (kevent(kq.kq_fd, &ev, 1, NULL, 0, NULL) != 0)
-		return -1;
+		return std::unexpected(std::make_error_code(std::errc(errno)));
 
-	return 0;
+	return {};
 }
 
 /*
@@ -243,9 +246,11 @@ using namespace std::literals;
 	return 0;
 }
 
+namespace {
 
-static int
-kq_dispatch_event(struct kevent *ev) {
+auto kq_dispatch_event(struct kevent *ev)
+	-> std::expected<void, std::error_code>
+{
 	if (ev->filter == EVFILT_READ) {
 	int	 fd = (int)(uintptr_t)ev->udata;
 	kqfd	*kfd = kq_get_fd(fd);
@@ -257,10 +262,10 @@ kq_dispatch_event(struct kevent *ev) {
 
 		switch (handler(fd)) {
 		case disp::rearm:
-			if (onread(fd, std::move(handler)) == -1) {
-				nlog::error("kq_dispatch_event: "
-				     "failed to rearm read");
-				return -1;
+			if (auto ret = onread(fd, std::move(handler)); !ret) {
+				log::error("kq_dispatch_event: "
+					   "failed to rearm read");
+				return std::unexpected(ret.error());
 			}
 			break;
 
@@ -269,7 +274,7 @@ kq_dispatch_event(struct kevent *ev) {
 
 		default:
 			panic("kq_dispatch_event: unknown return from "
-				"kf_readh");
+			      "kf_readh");
 		}
 	} else if (ev->filter == EVFILT_TIMER) {
 		if (ev->fflags & NOTE_ABSTIME) {
@@ -282,78 +287,55 @@ kq_dispatch_event(struct kevent *ev) {
 			auto disp = tmr->rt_callback();
 
 			if (disp == disp::rearm) {
-				if (timer(tmr->rt_duration,
-					  tmr->rt_callback) == -1) {
-					nlog::error("kq_dispatch_event: "
-					     "failed to rearm timer");
-					return -1;
+				auto ret = timer(tmr->rt_duration,
+						 tmr->rt_callback);
+				if (!ret) {
+					log::error("kq_dispatch_event: "
+						   "failed to rearm timer");
+					return std::unexpected(ret.error());
 				} else
 					delete tmr;
 			}
 		}
 	} else {
-		nlog::debug("kq_dispatch_event: no known filters");
+		log::debug("kq_dispatch_event: no known filters");
 	}
 
-	return 0;
+	return {};
 }
 
-int
-run(void) {
+} // anonymous namespace
+
+auto run(void) -> std::expected<void, std::error_code> {
 struct kevent	 ev;
 int		 n;
 
-	nlog::info("running");
+	log::info("running");
+
+	// run any jobs that were added before we started
+	runjobs();
 
 	while ((n = kevent(kq.kq_fd, NULL, 0, &ev, 1, NULL)) != -1) {
 		time(&current_time);
 
-		nlog::debug("kqrun: got event");
+		log::debug("kqrun: got event");
 
 		if (n) {
-			if (kq_dispatch_event(&ev) == -1) {
-				nlog::fatal("kqrun: dispatch failed");
-				return -1;
+			if (auto ret = kq_dispatch_event(&ev); !ret) {
+				log::fatal("kqrun: dispatch failed");
+				return std::unexpected(ret.error());
 			}
 		}
 
 		/* handle the kqdispatch() queue */
-		nlog::debug("kqrun: running jobs");
+		log::debug("kqrun: running jobs");
 		runjobs();
 
-		nlog::debug("kqrun: sleeping");
+		log::debug("kqrun: sleeping");
 	}
 
-	nlog::fatal("kqrun: kqueue failed: {}", strerror(errno));
-	return -1;
-}
-
-int
-accept4(int server_fd, int flags, accept4cb callback) {
-	auto handler = [=](int) {
-	sockaddr_storage	 addr;
-	socklen_t		 addrlen = sizeof(addr);
-
-		int newfd = accept4(server_fd,
-				    (struct sockaddr *)&addr,
-				    &addrlen,
-				    flags);
-		if (newfd == -1)
-			return callback(server_fd, -1, NULL, 0);
-
-		if (open(newfd) == -1) {
-			::close(newfd);
-			return callback(server_fd, -1, NULL, 0);
-		}
-
-		return callback(server_fd, newfd, (struct sockaddr *)&addr,
-				addrlen);
-	};
-
-	if (onread(server_fd, handler) == -1)
-		return -1;
-
-	return 0;
+	log::fatal("kqrun: kqueue failed: {}", strerror(errno));
+	return std::unexpected(std::make_error_code(std::errc(errno)));
 }
 
 /**
@@ -380,105 +362,107 @@ read(int fd, std::span<std::byte> buf, readcb callback) {
 		return disp::stop;
 	};
 
-	if (onread(fd, handler) == -1)
+	if (auto ret = onread(fd, handler); !ret)
 		dispatch([=]() {
-			callback(fd, -errno);
+			// TODO: pass an error_code here
+			callback(fd, -ret.error().value());
 		});
 }
 
-/**
- * kqrecvmsg()
+/******************************************************************************
+ *
+ * the kq async interface.
+ *
  */
 
-struct recvmsgdata {
-	recvmsgcb		callback;
-	std::span<std::byte>	buffer;
-	size_t			nbytes = 0;
-};
+auto run_task(task<void> &&tsk) -> void {
+	auto tsk_ = new (std::nothrow) task(std::move(tsk));
+	log::debug("run_task: start, task={}", static_cast<void *>(tsk_));
 
-static disp
-dorecvmsg(int fd, recvmsgdata &data) {
-disp	disp;
+	// TODO: free the task
+	dispatch([=] {
+		log::debug("run_task: dispatched, task={}",
+			   static_cast<void *>(tsk_));
+		tsk_->coro_handle.resume();
+	});
+}
 
-	nlog::debug("kqdorecvmsg: begin");
+auto recvmsg(int fd, std::span<std::byte> buf)
+	-> task<std::expected<std::size_t, std::error_code>>
+{
+	log::debug("async_recvmsg: begin");
 
-	/*
-	 * read data until EAGAIN or MSG_EOR.
-	 */
+	// the remaining buffer we can read into
+	auto bufleft = buf;
+
+	/* read until we get either MSG_EOR or run out of buffer space */
 	for (;;) {
 	struct msghdr	 msg;
 	struct iovec	 iov;
 	ssize_t		 n;
 
-		nlog::debug("kqdorecvmsg: in loop");
+		if (bufleft.size() == 0)
+			// out of space
+			co_return std::unexpected(
+					std::make_error_code(
+						std::errc(ENOSPC)));
 
-		assert(data.buffer.size() > data.nbytes);
-
-		iov.iov_base = &data.buffer[0] + data.nbytes;
-		iov.iov_len = data.buffer.size() - data.nbytes;
+		iov.iov_base = bufleft.data();
+		iov.iov_len = bufleft.size();
 
 		memset(&msg, 0, sizeof(msg));
 		msg.msg_iov = &iov;
 		msg.msg_iovlen = 1;
 
+		// wait for some data to arrive
+		log::debug("async_recvmsg: waiting for fd to be readable");
+		co_await wait_readable(fd);
+		log::debug("async_recvmsg: fd is readable");
+
 		n = ::recvmsg(fd, &msg, 0);
-		nlog::debug("kqdorecvmsg: read {} errno={}",
+		log::debug("kqdorecvmsg: read {} errno={}",
 		     n, strerror(errno));
 
-		if (n == 0) {
-			disp = data.callback(fd, 0, 0);
-			break;
-		}
+		if (n == 0)
+			// end of file
+			co_return 0u;
 
-		if (n == -1) {
-			if (errno == EAGAIN)
-				return disp::rearm;
+		if (n == -1)
+			// other error
+			co_return std::unexpected(
+					std::make_error_code(
+						std::errc(errno)));
 
-			disp = data.callback(fd, -errno, 0);
-			break;
-		}
+		bufleft = bufleft.subspan(static_cast<std::size_t>(n));
 
-		data.nbytes += (std::size_t)n;
-		if (msg.msg_flags & MSG_EOR) {
-			nlog::debug("kqdorecvmsg: got MSG_EOR");
-			disp = data.callback(fd, (ssize_t)data.nbytes,
-					     msg.msg_flags);
-			break;
-		}
+		if (!(msg.msg_flags & MSG_EOR))
+			// we didn't get the complete message, try again
+			continue;
 
-		if (data.nbytes == data.buffer.size()) {
-			/* ran out of buffer space */
-			disp = data.callback(fd, -ENOSPC, 0);
-			break;
-		}
+		co_return buf.size() - bufleft.size();
+	}
+}
+
+auto accept4(int server_fd, sockaddr *, socklen_t *, int flags)
+	-> task<std::expected<int, std::error_code>>
+{
+	// wait for the fd to become readable
+	co_await wait_readable(server_fd);
+
+	sockaddr_storage addr;
+	socklen_t addrlen = sizeof(addr);
+
+	int newfd = ::accept4(server_fd, (sockaddr *)&addr, &addrlen, flags);
+	if (newfd == -1)
+		co_return std::unexpected(
+			std::make_error_code(std::errc(errno)));
+
+	if (auto ret = open(newfd); !ret) {
+		::close(newfd);
+		co_return std::unexpected(ret.error());
 	}
 
-	nlog::debug("kqdorecvmsg: done, disp={}", static_cast<int>(disp));
-
-	if (disp == disp::rearm)
-		data.nbytes = 0;
-
-	return disp;
+	co_return newfd;
 }
 
-void
-recvmsg(int fd, std::span<std::byte> buf, recvmsgcb callback) {
-	assert(fd >= 0);
-	assert(buf.size() > 0);
-	assert(callback);
-
-	recvmsgdata data{ callback, buf };
-
-	auto handler = [=](int fd) mutable {
-		return dorecvmsg(fd, data);
-	};
-
-	if (onread(fd, handler) == -1)
-		dispatch([=]() {
-			callback(fd, -errno, 0);
-		});
-
-	return;
-}
-
-} // namespace kq
+} // namespace netd::kq

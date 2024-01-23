@@ -41,6 +41,8 @@
 #include	"netd.hh"
 #include	"kq.hh"
 
+namespace netd::iface {
+
 std::map<std::string, interface *nonnull> interfaces;
 
 namespace {
@@ -64,16 +66,15 @@ kq::disp	stats();
 
 } // anonymous namespace
 
-int
-iface_init(void) {
+auto init(void) -> int {
 	newlink_sub = msgbus::sub(netlink::evt_newlink, hdl_newlink);
 	dellink_sub = msgbus::sub(netlink::evt_dellink, hdl_dellink);
 	newaddr_sub = msgbus::sub(netlink::evt_newaddr, hdl_newaddr);
 	deladdr_sub = msgbus::sub(netlink::evt_deladdr, hdl_deladdr);
 
-	if ((kq::timer(std::chrono::seconds(intf_state_interval),
-		       stats)) == -1) {
-		nlog::fatal("state_init: kqtimer: {}", strerror(errno));
+	auto ret = kq::timer(std::chrono::seconds(intf_state_interval), stats);
+	if (!ret) {
+		log::fatal("state_init: kqtimer: {}", ret.error().message());
 		return -1;
 	}
 
@@ -129,7 +130,7 @@ interface		*intf;
 		intf->if_ibytes[i] = msg.nl_stats->rx_bytes;
 	}
 
-	nlog::info("{}<{}>: new interface", intf->if_name, intf->if_index);
+	log::info("{}<{}>: new interface", intf->if_name, intf->if_index);
 
 	interfaces.insert({intf->if_name, intf});
 }
@@ -139,15 +140,15 @@ auto hdl_dellink(netlink::dellink_data msg) -> void {
 		if (it.second->if_index != msg.dl_ifindex)
 			continue;
 
-		nlog::info("{}<{}>: interface destroyed",
-		     it.second->if_name,
-		     it.second->if_index);
+		log::info("{}<{}>: interface destroyed",
+			  it.second->if_name,
+			  it.second->if_index);
 
 		interfaces.erase(it.first);
 		return;
 	}
 
-	nlog::warning("hdl_dellink: missing ifindex {}?", msg.dl_ifindex);
+	log::warning("hdl_dellink: missing ifindex {}?", msg.dl_ifindex);
 }
 
 } // anonymous namespace
@@ -215,7 +216,7 @@ ifaddr		*addr;
 		/* unsupported family, etc. */
 		return;
 
-	nlog::info("{}<{}>: address added", intf->if_name, intf->if_index);
+	log::info("{}<{}>: address added", intf->if_name, intf->if_index);
 
 	intf->if_addrs.push_back(addr);
 }
@@ -227,7 +228,7 @@ interface		*intf;
 	if ((intf = find_interface_byindex(msg.da_ifindex)) == NULL)
 		return;
 
-	nlog::info("{}<{}>: address removed", intf->if_name, intf->if_index);
+	log::info("{}<{}>: address removed", intf->if_name, intf->if_index);
 }
 
 } // anonymous namespace
@@ -264,15 +265,18 @@ struct rtnl_link_stats64	stats;
 namespace {
 
 auto stats() -> kq::disp {
-netlink::socket		*nls = NULL;
-struct nlmsghdr		 hdr, *rhdr = NULL;
+struct nlmsghdr		 hdr;
 
-	nlog::debug("iface: running stats");
+	log::debug("iface: running stats");
 
-	if ((nls = netlink::socket_create(0)) == NULL) {
-		nlog::error("stats: nlsocket_create: {}", strerror(errno));
-		goto done;
+	auto nlsr = netlink::socket_create(0);
+	if (!nlsr) {
+		log::error("stats: netlink::socket_create: {}",
+			   nlsr.error().message());
+		return kq::disp::rearm;
 	}
+
+	auto &nls = *nlsr;
 
 	/* ask the kernel to send us interface stats */
 	memset(&hdr, 0, sizeof(hdr));
@@ -280,17 +284,28 @@ struct nlmsghdr		 hdr, *rhdr = NULL;
 	hdr.nlmsg_type = RTM_GETLINK;
 	hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
 
-	if (netlink::socket_send(nls, &hdr, sizeof(hdr)) == -1) {
-		nlog::error("stats: nlsocket_send: {}", strerror(errno));
-		goto done;
+	if (auto ret = socket_send(*nls, &hdr, sizeof(hdr)); !ret) {
+		log::error("stats: socket_send: {}", ret.error().message());
+		return kq::disp::rearm;
 	}
 
 	/* read the interface details */
-	while ((rhdr = netlink::socket_recv(nls)) != NULL) {
-	struct ifinfomsg	*ifinfo = NULL;
-	struct rtattr		*attrmsg = NULL;
-	size_t			 attrlen;
-	interface		*intf = NULL;
+	for (;;) {
+		auto ret = socket_recv(*nls);
+		if (!ret) {
+			log::error("stats: socket_recv: {}",
+				   ret.error().message());
+			return kq::disp::rearm;
+		}
+
+		if (*ret == nullptr)
+			break;
+
+		auto rhdr = *ret;
+		ifinfomsg	*ifinfo = NULL;
+		rtattr		*attrmsg = NULL;
+		size_t		 attrlen;
+		interface	*intf = NULL;
 
 		if (rhdr->nlmsg_type == NLMSG_DONE)
 			break;
@@ -302,8 +317,8 @@ struct nlmsghdr		 hdr, *rhdr = NULL;
 
 		intf = find_interface_byindex((unsigned)ifinfo->ifi_index);
 		if (intf == NULL) {
-			nlog::error("stats: missing interface {}?",
-				    ifinfo->ifi_index);
+			log::error("stats: missing interface {}?",
+				   ifinfo->ifi_index);
 			continue;
 		}
 
@@ -321,11 +336,9 @@ struct nlmsghdr		 hdr, *rhdr = NULL;
 		}
 	}
 
-done:
-	if (nls)
-		netlink::socket_close(nls);
-
 	return kq::disp::rearm;
 }
 
 } // anonymous namespace
+
+} // namespace netd::iface
