@@ -1,7 +1,6 @@
 /local.mk
 *.swp*
-*.o
 *.core
-.depend
 netd/netd
 netctl/netctl
+/obj

@@ -20,8 +20,7 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef	NETD_ISAM_HH_INCLUDED
-#define	NETD_ISAM_HH_INCLUDED
+module;
 
 #include	<list>
 #include	<vector>
@@ -30,6 +29,8 @@
 #include	<ranges>
 #include	<unordered_map>
 #include	<cassert>
+
+export module isam;
 
 /*
  * a very simple in-memory ISAM-style container.  isam<T> is an std::list<T>
@@ -47,7 +48,7 @@ namespace netd::isam {
 template<typename T, typename K>
 using extractor = std::function<K (T const &)>;
 
-template<typename T> struct isam;
+export template<typename T> struct isam;
 
 template<typename T>
 struct index_base {
@@ -67,9 +68,9 @@ protected:
 	virtual auto erase(T const &) -> void = 0;
 };
 
-template<typename T, typename K> struct index;
+export template<typename T, typename K> struct index;
 
-template<typename T>
+export template<typename T>
 struct isam final {
 	using iterator = std::list<T>::iterator;
 	using const_iterator = std::list<T>::const_iterator;
@@ -148,12 +149,11 @@ private:
 	template<typename T1, typename K> friend struct index;
 };
 
-template<typename T, typename K>
+export template<typename T, typename K>
 struct index final : index_base<T> {
 private:
 	friend struct isam<T>;
 	using typename index_base<T>::list_iter;
-	using map_type = std::map<K, list_iter>;
 
 public:
 	index(isam<T> &isam, extractor<T, K> ext)
@@ -227,5 +227,3 @@ private:
 };
 
 } // namespace netd::isam
-
-#endif	/* !NETD_ISAM_HH_INCLUDED */

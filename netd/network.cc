@@ -34,9 +34,10 @@
 
 #include	"netd.hh"
 #include	"network.hh"
-#include	"isam.hh"
 #include	"log.hh"
 #include	"uuid.hh"
+
+import isam;
 
 namespace netd::network {
 
