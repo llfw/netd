@@ -20,25 +20,27 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef	NETD_XO_HH_INCLUDED
-#define	NETD_XO_HH_INCLUDED
-
 /*
  * helpers for using libxo from C++.
  */
 
+module;
+
 #include	<tuple>
+#include	<string>
 
 extern "C" { // TODO: file upstream bug
 #include	<libxo/xo.h>
 }
+
+export module xo;
 
 namespace xo {
 
 /*
  * xo calls xo_finish() when it's destroyed.
  */
-struct xo {
+export struct xo {
 	~xo() {
 		xo_finish();
 	}
@@ -48,7 +50,7 @@ struct xo {
  * container opens a container of the given name and closes it when
  * it's destroyed.
  */
-struct container {
+export struct container {
 	container(std::string name)
 	: _name(std::move(name)) {
 		xo_open_container(_name.c_str());
@@ -71,7 +73,7 @@ private:
  * instance opens an instance of the given name and closes it when it's
  * destroyed.
  */
-struct instance {
+export struct instance {
 	instance(std::string name)
 	: _name(std::move(name)) {
 		xo_open_instance(_name.c_str());
@@ -172,12 +174,10 @@ namespace detail {
 	}
 }
 
-template<typename... Args>
+export template<typename... Args>
 void emit(std::string_view format, Args&&... args) {
 	detail::emit(format, std::tuple<Args...>(std::forward<Args>(args)...));
 
 }
 
 } // namespace xo
-
-#endif	/* !NETD_XO_HH_INCLUDED */

@@ -20,8 +20,7 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef	NETD_NVL_H_INCLUDED
-#define	NETD_NVL_H_INCLUDED
+module;
 
 /*
  * nvl: lightweight wrapper around nv(9).
@@ -40,11 +39,15 @@
 #include	<vector>
 #include	<ranges>
 
+export module nvl;
+
 /*
  * an nvlist
  */
 
-struct nvl {
+namespace netd {
+
+export struct nvl {
 	nvl(int flags = 0) : _nv(nvlist_create(flags)), _owning(true) {}
 
 	explicit nvl(nvlist_t *nv, bool owning = true)
@@ -739,4 +742,4 @@ private:
 	bool _owning;
 };
 
-#endif	/* !NETD_NVL_H_INCLUDED */
+} // namespace netd

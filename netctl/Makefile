@@ -6,5 +6,6 @@ TARGET	= netctl
 BINDIR	= sbin
 SRCS	= netctl.cc
 LIBS	= -lnv -lxo
+MODULES	= xo nvl
 
 .include "../mk/prog.mk"

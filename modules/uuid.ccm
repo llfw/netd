@@ -20,18 +20,20 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef	NETD_UUID_H_INCLUDED
-#define	NETD_UUID_H_INCLUDED
+module;
 
 #include	<sys/uuid.h>
 
 #include	<functional>
+#include	<algorithm>
+
+export module uuid;
 
 /*
  * utilities for dealing with UUIDs.
  */
 
-template<>
+export template<>
 struct std::hash<uuid> {
 	auto operator()(uuid const &s) const -> std::size_t {
 		// TODO: consider hashing node as well
@@ -43,7 +45,7 @@ struct std::hash<uuid> {
 	}
 };
 
-inline constexpr auto operator==(uuid const &a, uuid const &b) -> bool {
+export inline constexpr auto operator==(uuid const &a, uuid const &b) -> bool {
 	return	a.time_low == b.time_low
 		&& a.time_mid == b.time_mid
 		&& a.time_hi_and_version == b.time_hi_and_version
@@ -51,5 +53,3 @@ inline constexpr auto operator==(uuid const &a, uuid const &b) -> bool {
 		&& a.clock_seq_low == b.clock_seq_low
 		&& std::ranges::equal(a.node, b.node);
 }
-
-#endif	/* !NETD_UUID_H_INCLUDED */

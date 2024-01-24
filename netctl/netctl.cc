@@ -25,6 +25,10 @@
 #include	<sys/un.h>
 #include	<sys/nv.h>
 
+extern "C" { // TODO: file upstream bug
+#include	<libxo/xo.h>
+}
+
 #include	<ranges>
 #include	<expected>
 #include	<algorithm>
@@ -47,22 +51,25 @@
 
 #include	"protocol.hh"
 #include	"defs.hh"
-#include	"nvl.hh"
-#include	"xo.hh"
+
+import nvl;
+import xo;
 
 using namespace std::literals;
+
+namespace netd {
 
 int	netd_connect(void);
 
 using cmdhandler = std::function<int (int server,
 				      std::span<std::string const> args)>;
 
-static int	c_intf_list(int, std::span<std::string const>);
-static int	c_net_list(int, std::span<std::string const>);
-static int	c_net_create(int, std::span<std::string const>);
-static int	c_net_delete(int, std::span<std::string const>);
-
 namespace {
+
+auto	c_intf_list(int, std::span<std::string const>) -> int;
+auto	c_net_list(int, std::span<std::string const>) -> int;
+auto	c_net_create(int, std::span<std::string const>) -> int;
+auto	c_net_delete(int, std::span<std::string const>) -> int;
 
 struct command {
 	using cmdmap = std::map<std::string_view, command>;
@@ -203,9 +210,7 @@ auto send_simple_command(int server, std::string_view command)
 	return nv_xfer(server, cmd);
 }
 
-} // anonymous namespace
-
-static void
+void
 usage(command const &root) {
 	std::print(stderr, "usage: {} [--libxo=...] <command>\n",
 		   getprogname());
@@ -217,109 +222,6 @@ usage(command const &root) {
 		std::print(stderr, "  {:<20} {}\n",
 			   cmd.first,
 			   cmd.second.cm_description);
-}
-
-auto find_command(command const &root,
-		  std::vector<std::string> &args)
-	-> std::optional<command const *>
-{
-	if (args.empty()) {
-		std::print(stderr, "incomplete command\n");
-		usage(root);
-		return {};
-	}
-
-	auto const *cur = &root;
-
-	while (!args.empty()) {
-		auto match = cur->match(args[0]);
-
-		if (!match) {
-			std::print(stderr, "{}\n", match.error());
-			return {};
-		}
-
-		cur = *match;
-
-		if (cur->cm_handler) {
-			args.erase(args.begin());
-			return cur;
-		}
-
-		if (args.size() == 1) {
-			std::print(stderr, "{}: incomplete command\n",
-				   args[0]);
-			return {};
-		}
-
-		args.erase(args.begin());
-	}
-
-	return {};
-}
-
-int
-main(int argc, char **argv) {
-int	server;
-
-	setprogname(argv[0]);
-
-	argc = xo_parse_args(argc, argv);
-	if (argc < 0)
-		return EXIT_FAILURE;
-
-	--argc;
-	++argv;
-
-	auto args = std::span(argv, argv + argc)
-		    | std::views::transform([](auto &&s) {
-			    return std::string(s);
-		    })
-		    | std::ranges::to<std::vector>();
-
-	if (args.empty()) {
-		usage(root_cmd);
-		return 1;
-	}
-
-	auto cmd = find_command(root_cmd, args);
-	if (!cmd)
-		return 1;
-
-	if ((server = netd_connect()) == -1)
-		return 1;
-
-	return (*cmd)->cm_handler(server, args);
-}
-
-int
-netd_connect(void) {
-int			sock = -1, i;
-struct sockaddr_un	sun;
-
-	sock = socket(AF_UNIX, SOCK_SEQPACKET, 0);
-	if (sock == -1) {
-		perror("socket");
-		goto err;
-	}
-
-	memset(&sun, 0, sizeof(sun));
-	sun.sun_family = AF_UNIX;
-	assert(proto::socket_path.size() < sizeof(sun.sun_path));
-	std::ranges::copy(proto::socket_path, &sun.sun_path[0]);
-
-	i = connect(sock, (struct sockaddr *)&sun, (socklen_t)SUN_LEN(&sun));
-	if (i == -1) {
-		perror("connect");
-		goto err;
-	}
-
-	return sock;
-
-err:
-	if (sock != -1)
-		close(sock);
-	return -1;
 }
 
 int
@@ -543,4 +445,110 @@ auto c_net_delete(int server, std::span<std::string const> args) -> int {
 
 	xo::emit("{E:/%s}\n", resp->get_string(proto::cp_status));
 	return 1;
+}
+
+} // anonymous namespace
+
+auto find_command(command const &root,
+		  std::vector<std::string> &args)
+	-> std::optional<command const *>
+{
+	if (args.empty()) {
+		std::print(stderr, "incomplete command\n");
+		usage(root);
+		return {};
+	}
+
+	auto const *cur = &root;
+
+	while (!args.empty()) {
+		auto match = cur->match(args[0]);
+
+		if (!match) {
+			std::print(stderr, "{}\n", match.error());
+			return {};
+		}
+
+		cur = *match;
+
+		if (cur->cm_handler) {
+			args.erase(args.begin());
+			return cur;
+		}
+
+		if (args.size() == 1) {
+			std::print(stderr, "{}: incomplete command\n",
+				   args[0]);
+			return {};
+		}
+
+		args.erase(args.begin());
+	}
+
+	return {};
+}
+
+int
+netd_connect(void) {
+int			sock = -1, i;
+struct sockaddr_un	sun;
+
+	sock = socket(AF_UNIX, SOCK_SEQPACKET, 0);
+	if (sock == -1) {
+		perror("socket");
+		goto err;
+	}
+
+	memset(&sun, 0, sizeof(sun));
+	sun.sun_family = AF_UNIX;
+	assert(proto::socket_path.size() < sizeof(sun.sun_path));
+	std::ranges::copy(proto::socket_path, &sun.sun_path[0]);
+
+	i = connect(sock, (struct sockaddr *)&sun, (socklen_t)SUN_LEN(&sun));
+	if (i == -1) {
+		perror("connect");
+		goto err;
+	}
+
+	return sock;
+
+err:
+	if (sock != -1)
+		close(sock);
+	return -1;
+}
+
+} // namespace netd
+
+auto main(int argc, char **argv) -> int {
+int	server;
+
+	setprogname(argv[0]);
+
+	argc = xo_parse_args(argc, argv);
+	if (argc < 0)
+		return EXIT_FAILURE;
+
+	--argc;
+	++argv;
+
+	auto args = std::span(argv, argv + argc)
+		    | std::views::transform([](auto &&s) {
+			    return std::string(s);
+		    })
+		    | std::ranges::to<std::vector>();
+
+	if (args.empty()) {
+		usage(netd::root_cmd);
+		return 1;
+	}
+
+	auto cmd = netd::find_command(netd::root_cmd, args);
+	if (!cmd)
+		return 1;
+
+	if ((server = netd::netd_connect()) == -1)
+		return 1;
+
+	return (*cmd)->cm_handler(server, args);
 }
