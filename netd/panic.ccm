@@ -22,28 +22,21 @@
 
 module;
 
-#include	<sys/queue.h>
+#include	<cstdarg>
+#include	<string>
+#include	<format>
 
-#include	<cstdlib>
-#include	<cstdint>
+export module panic;
 
-#include	<new>
-#include	<list>
+namespace netd {
 
-module msgbus;
+/* log a message at the highest priority and immediately abort */
+_Noreturn auto _panic(std::string_view) -> void;
 
-/*
- * minimal implementation to make the API work.  this could obviously be much
- * more efficient.
- */
-
-// TODO: this is a no-op since the C++ conversion; decide what we want to do
-// with it.
-
-namespace msgbus {
-
-auto init(void) -> int {
-	return 0;
+export template<typename... Args>
+auto panic(std::format_string<Args...> fmt, Args&&... args) -> void {
+	auto msg = std::format(fmt, std::forward<Args>(args)...);
+	_panic(msg);
 }
 
-} // namespace msgbus
+} // namespace netd

@@ -12,6 +12,7 @@ SRCS	= netd.cc	\
 	  netlink.ccm netlink.cc	\
 	  msgbus.ccm msgbus.cc		\
 	  log.ccm log.cc		\
+	  panic.ccm panic.cc		\
 	  task.ccm
 LIBS	= -lnv
 MODULES	= isam nvl uuid

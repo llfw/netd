@@ -20,24 +20,19 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef NETD_NETD_H
-#define NETD_NETD_H
+module;
 
-#include	<cstdarg>
-#include	<string>
-#include	<format>
+#include	<print>
+#include	<cstdio>
+
+module panic;
 
 namespace netd {
 
-/* log a message at the highest priority and immediately abort */
-_Noreturn auto _panic(std::string_view) -> void;
-
-template<typename... Args>
-auto panic(std::format_string<Args...> fmt, Args&&... args) -> void {
-	auto msg = std::format(fmt, std::forward<Args>(args)...);
-	_panic(msg);
+auto _panic(std::string_view msg) -> void {
+	std::print(stderr, "panic: {}\n", msg);
+	std::fflush(stderr);
+	abort();
 }
 
 } // namespace netd
-
-#endif	/* !NETD_NETD_H */

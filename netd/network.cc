@@ -36,8 +36,8 @@ module;
 #include	<ranges>
 #include	<algorithm>
 #include	<expected>
+#include	<system_error>
 
-#include	"netd.hh"
 #include	"generator.hh"
 
 module network;
@@ -45,6 +45,7 @@ module network;
 import isam;
 import uuid;
 import log;
+import panic;
 
 namespace netd::network {
 

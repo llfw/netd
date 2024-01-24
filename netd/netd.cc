@@ -31,8 +31,6 @@
 #include	<ctime>
 #include	<print>
 
-#include	"netd.hh"
-
 import network;
 import ctl;
 import log;
@@ -42,12 +40,6 @@ import netlink;
 import msgbus;
 
 namespace netd {
-
-auto _panic(std::string_view msg) -> void {
-	std::print(stderr, "panic: {}\n", msg);
-	std::fflush(stderr);
-	abort();
-}
 
 } // namespace netd
 

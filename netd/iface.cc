@@ -40,10 +40,11 @@ module;
 #include	<cstdlib>
 #include	<cinttypes>
 #include	<coroutine>
+#include	<string>
+#include	<chrono>
 #include	<new>
 #include	<map>
 
-#include	"netd.hh"
 #include	"defs.hh"
 
 import log;
@@ -51,6 +52,7 @@ import kq;
 import netlink;
 import msgbus;
 import task;
+import panic;
 
 module iface;
 

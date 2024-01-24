@@ -44,7 +44,6 @@ module;
 #include	<new>
 #include	<print>
 
-#include	"netd.hh"
 #include	"protocol.hh"
 
 module ctl;
@@ -55,6 +54,7 @@ import log;
 import kq;
 import iface;
 import task;
+import panic;
 
 namespace netd::ctl {
 

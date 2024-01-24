@@ -40,11 +40,11 @@ module;
 #include	<vector>
 #include	<expected>
 
-#include	"netd.hh"
 #include	"defs.hh"
 
 import log;
 import task;
+import panic;
 
 module kq;
 

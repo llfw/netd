@@ -42,11 +42,10 @@ module;
 #include	<coroutine>
 #include	<unistd.h>
 
-#include	"netd.hh"
-
 import log;
 import kq;
 import task;
+import panic;
 
 module netlink;
 

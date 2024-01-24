@@ -30,8 +30,6 @@ module;
 
 #include	<syslog.h>
 
-#include	"netd.hh"
-
 module log;
 
 import kq;
