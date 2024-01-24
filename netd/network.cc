@@ -20,6 +20,10 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+module;
+
+#include	<sys/uuid.h>
+
 #include	<assert.h>
 #include	<errno.h>
 #include	<stdlib.h>
@@ -31,10 +35,13 @@
 #include	<list>
 #include	<ranges>
 #include	<algorithm>
+#include	<expected>
 
 #include	"netd.hh"
-#include	"network.hh"
 #include	"log.hh"
+#include	"generator.hh"
+
+module network;
 
 import isam;
 import uuid;

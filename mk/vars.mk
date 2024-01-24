@@ -14,7 +14,8 @@ CFLAGS		= -std=c17 -pedantic -O0 -g -fPIE -fstack-protector-strong \
 		  ${WARNFLAGS}
 CXXFLAGS	= -std=c++23 -pedantic -O0 -g -fPIE -fstack-protector-strong \
 		  -fno-exceptions -fno-rtti ${WARNFLAGS}		     \
-		  -fprebuilt-module-path=${.OBJDIR}
+		  -fprebuilt-module-path=${.OBJDIR}			     \
+		  -fprebuilt-module-path=${.CURDIR}
 LDFLAGS		= -pie
 
 MAKEOBJDIR	?= ${TOPDIR}/obj

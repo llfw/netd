@@ -87,7 +87,62 @@ auto find_rule(std::string const &logical_name) -> std::optional<p1689rule> {
 	return {};
 }
 
-auto process_rule(ucl_object_t const *rule) -> int {
+auto process_provides(ucl_object_t const *rule, ucl_object_t const *provides)
+	-> int
+{
+	auto output = ucl_object_lookup(rule, "primary-output");
+	if (!output) {
+		std::print(stderr, "no output\n");
+		return 0;
+	}
+
+	p1689rule r;
+	r.primary_output = ucl_object_tostring(output);
+	r.primary_basename = r.primary_output;
+	if (auto pos = r.primary_basename.rfind('.'); pos != std::string::npos)
+		r.primary_basename = r.primary_basename.substr(0, pos);
+
+	auto provit = ucl_object_iterate_new(provides);
+	ucl_object_t const *prov;
+
+	while ((prov = ucl_object_iterate_safe(provit, true)) != nullptr) {
+		auto mod = ucl_object_lookup(prov,
+					     "logical-name");
+		if (!mod) {
+			std::print(stderr, "no mod\n");
+			continue;
+		}
+
+		auto src = ucl_object_lookup(prov,
+					     "source-path");
+		if (!src) {
+			std::print(stderr, "no src\n");
+			continue;
+		}
+
+		r.logical_name = ucl_object_tostring(mod);
+		r.source_path = ucl_object_tostring(src);
+		r.pcm_path = std::format("{}.pcm", r.primary_basename);
+		add_rule(r);
+
+#if 0
+		std::print("{0}: {1} {2}\n",
+			   r.pcm_path,
+			   ucl_object_tostring(output),
+			   r.source_path);
+#endif
+		std::print("{0}: {1}\n",
+			   r.pcm_path,
+			   r.source_path);
+	}
+
+	ucl_object_iterate_free(provit);
+	return 0;
+}
+
+auto process_requires(ucl_object_t const *rule, ucl_object_t const *reqs)
+	-> int
+{
 	auto output = ucl_object_lookup(rule, "primary-output");
 	if (!output) {
 		std::print(stderr, "no output\n");
@@ -102,68 +157,28 @@ auto process_rule(ucl_object_t const *rule) -> int {
 
 	std::print(stderr, "primary_basename = {}\n", r.primary_basename);
 
-	// do requires
-	auto reqs = ucl_object_lookup(rule, "requires");
-	if (reqs) {
-		std::print("{}:", ucl_object_tostring(output));
+	std::print("{}:", ucl_object_tostring(output));
 
-		auto reqit = ucl_object_iterate_new(reqs);
-		ucl_object_t const *req;
-		while ((req = ucl_object_iterate_safe(
-					reqit, true)) != nullptr) {
-			auto mod = ucl_object_lookup(req,
-						     "logical-name");
-			if (!mod) {
-				std::print(stderr, "no mod\n");
-				continue;
-			}
-
-			auto mod_ = ucl_object_tostring(mod);
-			if (auto rule = find_rule(mod_); rule)
-				std::print(" {}", rule->pcm_path);
-			else
-				std::print(stderr, "no rule for {}", mod_);
+	auto reqit = ucl_object_iterate_new(reqs);
+	ucl_object_t const *req;
+	while ((req = ucl_object_iterate_safe(
+				reqit, true)) != nullptr) {
+		auto mod = ucl_object_lookup(req,
+					     "logical-name");
+		if (!mod) {
+			std::print(stderr, "no mod\n");
+			continue;
 		}
 
-		ucl_object_iterate_free(reqit);
-		std::print("\n");
+		auto mod_ = ucl_object_tostring(mod);
+		if (auto rule = find_rule(mod_); rule)
+			std::print(" {}", rule->pcm_path);
+		else
+			std::print(stderr, "no rule for {}\n", mod_);
 	}
 
-
-	// do provides
-	auto provides = ucl_object_lookup(rule, "provides");
-	if (provides) {
-		auto provit = ucl_object_iterate_new(provides);
-		ucl_object_t const *prov;
-		while ((prov = ucl_object_iterate_safe(
-					provit, true)) != nullptr) {
-			auto mod = ucl_object_lookup(prov,
-						     "logical-name");
-			if (!mod) {
-				std::print(stderr, "no mod\n");
-				continue;
-			}
-
-			auto src = ucl_object_lookup(prov,
-						     "source-path");
-			if (!src) {
-				std::print(stderr, "no src\n");
-				continue;
-			}
-
-			r.logical_name = ucl_object_tostring(mod);
-			r.source_path = ucl_object_tostring(src);
-			r.pcm_path = std::format("{}.pcm", r.primary_basename);
-			add_rule(r);
-
-			std::print("{0}: {1} {2}\n",
-				   r.pcm_path,
-				   ucl_object_tostring(output),
-				   r.source_path);
-		}
-
-		ucl_object_iterate_free(provit);
-	}
+	ucl_object_iterate_free(reqit);
+	std::print("\n");
 
 	return 0;
 }
@@ -176,8 +191,27 @@ auto emit(ucl_object_t *top) -> int {
 	}
 
 	auto it = ucl_object_iterate_new(rules);
+
+	// do provides first to pick up all the modules, then do requires
+
 	while (auto rule = ucl_object_iterate_safe(it, true)) {
-		if (process_rule(rule) == -1)
+		auto provides = ucl_object_lookup(rule, "provides");
+		if (!provides)
+			continue;
+
+		if (process_provides(rule, provides) == -1)
+			return 1;
+	}
+
+	ucl_object_iterate_free(it);
+
+	it = ucl_object_iterate_new(rules);
+	while (auto rule = ucl_object_iterate_safe(it, true)) {
+		auto reqs = ucl_object_lookup(rule, "requires");
+		if (!reqs)
+			continue;
+
+		if (process_requires(rule, reqs) == -1)
 			return 1;
 	}
 

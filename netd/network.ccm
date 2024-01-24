@@ -20,8 +20,7 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef	NETD_NETWORK_H_INCLUDED
-#define	NETD_NETWORK_H_INCLUDED
+module;
 
 #include	<sys/uuid.h>
 
@@ -34,13 +33,15 @@
 #include	"defs.hh"
 #include	"generator.hh"
 
+export module network;
+
 namespace netd::network {
 
 struct network;
 /*
  * a handle representing a network.
  */
-struct handle {
+export struct handle {
 	network			*nh_ptr;
 	uuid			 nh_uuid;
 	mutable std::uint64_t	 nh_gen;
@@ -50,28 +51,26 @@ struct handle {
  * retrieve a network's details.
  */
 
-struct netinfo {
+export struct netinfo {
 	uuid			id;
 	std::string_view	name;
 };
 
-auto info(handle const &) -> std::expected<netinfo, std::error_code>;
+export auto info(handle const &) -> std::expected<netinfo, std::error_code>;
 
 /*
  * create a new network and add it to the configuration store.
  */
-auto create(std::string_view name)
+export auto create(std::string_view name)
 	-> std::expected<handle, std::error_code>;
 
 /* retrieve an existing network; returns NULL if not found. */
-auto find(std::string_view name) -> std::expected<handle, std::error_code>;
+export auto find(std::string_view name) -> std::expected<handle, std::error_code>;
 
 /* iterate all networks */
-auto findall() -> std::generator<handle>;
+export auto findall() -> std::generator<handle>;
 
 /* delete a network.  all configuration will be removed. */
-auto remove(handle const &) -> void;
+export auto remove(handle const &) -> void;
 
 } // namespace netd::network
-
-#endif	/* !NETD_NETWORK_H_INCLUDED */

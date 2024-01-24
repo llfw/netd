@@ -38,7 +38,8 @@
 #include	"ctl.hh"
 #include	"msgbus.hh"
 #include	"iface.hh"
-#include	"network.hh"
+
+import network;
 
 namespace netd {
 

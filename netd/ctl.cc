@@ -45,8 +45,8 @@
 #include	"kq.hh"
 #include	"protocol.hh"
 #include	"iface.hh"
-#include	"network.hh"
 
+import network;
 import nvl;
 
 namespace netd::ctl {

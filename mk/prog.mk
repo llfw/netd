@@ -8,19 +8,19 @@ default: all
 
 all: ${TARGET}
 
-OBJS	= ${SRCS:S/.c$/.o/:S/.cc$/.o/}
-MODOBJS	= ${MODULES:S/$/.o/}
+OBJS	= ${SRCS:S/.cc$/.o/:S/.ccm/.module.o/}
+MODOBJS	= ${MODULES:S/$/.module.o/}
 VPATH	+= ${TOPDIR}/modules
 
 ${TARGET}: ${OBJS} ${MODOBJS}
-	${CXX} ${CFLAGS} ${LDFLAGS} -o ${TARGET} $> ${LIBS}
+	${CXX} ${CXXFLAGS} ${LDFLAGS} -o ${TARGET} $> ${LIBS}
 
 depend:
 .for src in ${SRCS}
 	echo >> ${_COMPDB} '{'
 	echo >> ${_COMPDB} '"directory": "${.CURDIR}",'
-	echo >> ${_COMPDB} '"command": "${CXX} ${CPPFLAGS} ${CXXFLAGS} ${.CURDIR}/${src} -c -o ${src:R}.o -MMD -MF ${.OBJDIR}/${src}.d",'
-	echo >> ${_COMPDB} '"file": "${.CURDIR}/${src}",'
+	echo >> ${_COMPDB} '"command": "${CXX} ${CPPFLAGS} ${CXXFLAGS} ${.CURDIR}/${src} -c -o ${src:R}.o -MMD -MF ${.OBJDIR}/${src:R}.d",'
+	echo >> ${_COMPDB} '"file": "${src}",'
 	echo >> ${_COMPDB} '"output": "${src:R}.o"'
 	echo >> ${_COMPDB} '},'
 .endfor

@@ -2,7 +2,7 @@
 # This source code is released into the public domain.
 #
 
-OBJS=	${SRCS:R:S/$/.o/}
+OBJS=	${SRCS:R:S/$/.pcm/}
 
 default: all
 all: ${OBJS}
@@ -11,7 +11,13 @@ depend:
 .for src in ${SRCS}
 	echo >> ${_COMPDB} '{'
 	echo >> ${_COMPDB} '"directory": "${.CURDIR}",'
-	echo >> ${_COMPDB} '"command": "${CXX} ${CPPFLAGS} ${CXXFLAGS} ${.CURDIR}/${src} -c -o ${.OBJDIR}/${src:R}.o -MMD -MF ${.OBJDIR}/${src}.d",'
+	echo >> ${_COMPDB} '"command": "${CXX} --precompile ${CPPFLAGS} ${CXXFLAGS} ${.CURDIR}/${src} -c -o ${.OBJDIR}/${src:R}.pcm -MMD -MF ${.OBJDIR}/${src}.d",'
+	echo >> ${_COMPDB} '"file": "${.CURDIR}/${src}",'
+	echo >> ${_COMPDB} '"output": "${.OBJDIR}/${src:R}.o"'
+	echo >> ${_COMPDB} '},'
+	echo >> ${_COMPDB} '{'
+	echo >> ${_COMPDB} '"directory": "${.CURDIR}",'
+	echo >> ${_COMPDB} '"command": "${CXX} ${CPPFLAGS} ${CXXFLAGS} ${.CURDIR}/${src} -c -o ${.OBJDIR}/${src:R}.module.o -MMD -MF ${.OBJDIR}/${src}.d",'
 	echo >> ${_COMPDB} '"file": "${.CURDIR}/${src}",'
 	echo >> ${_COMPDB} '"output": "${.OBJDIR}/${src:R}.o"'
 	echo >> ${_COMPDB} '},'
