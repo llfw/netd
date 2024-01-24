@@ -20,28 +20,35 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+module;
+
 #include	<sys/types.h>
 #include	<sys/event.h>
 #include	<sys/socket.h>
 
-#include	<assert.h>
-#include	<errno.h>
-#include	<stdlib.h>
-#include	<string.h>
-#include	<stdio.h>
-#include	<time.h>
+#include	<cassert>
+#include	<cerrno>
+#include	<cstdlib>
+#include	<cstring>
+#include	<cstdio>
+#include	<ctime>
+#include	<coroutine>
+#include	<span>
 #include	<unistd.h>
 
 #include	<new>
 #include	<vector>
+#include	<expected>
 
 #include	"netd.hh"
-#include	"kq.hh"
-#include	"log.hh"
+#include	"defs.hh"
+
+import log;
+import task;
+
+module kq;
 
 namespace netd::kq {
-
-time_t current_time;
 
 /* kq_fd represents a single open fd */
 #define	KQF_OPEN	0x1u

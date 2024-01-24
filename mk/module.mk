@@ -2,7 +2,7 @@
 # This source code is released into the public domain.
 #
 
-OBJS=	${SRCS:R:S/$/.pcm/}
+OBJS=	${SRCS:S/.ccm$/.pcm/}
 
 default: all
 all: ${OBJS}
@@ -23,13 +23,8 @@ depend:
 	echo >> ${_COMPDB} '},'
 .endfor
 
-
 clean:
-	rm -f ${TARGET} ${OBJS}
-
-install: ${TARGET}
-	install -d "${PREFIX}/${BINDIR}"
-	install -C ${TARGET} "${PREFIX}/${BINDIR}"
+	rm -f ${OBJS}
 
 .include "${.PARSEDIR}/vars.mk"
 .include "${.PARSEDIR}/rules.mk"

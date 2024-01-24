@@ -38,6 +38,7 @@ export module network;
 namespace netd::network {
 
 struct network;
+
 /*
  * a handle representing a network.
  */

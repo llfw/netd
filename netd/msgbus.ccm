@@ -20,8 +20,7 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef	NETD_MSGBUS_H_INCLUDED
-#define	NETD_MSGBUS_H_INCLUDED
+module;
 
 /*
  * msgbus is an internal message bus used to distribute events.
@@ -30,9 +29,11 @@
 #include	<functional>
 #include	<set>
 
+export module msgbus;
+
 namespace msgbus {
 
-template<typename... Args>
+export template<typename... Args>
 struct event final {
 	event() = default;
 
@@ -53,7 +54,7 @@ private:
 	std::set<handler *> _handlers;
 };
 
-struct sub final {
+export struct sub final {
 	sub() = default;
 
 	sub(sub &&) = default;
@@ -107,8 +108,6 @@ private:
 };
 
 /* initialise the msgbus */
-auto init(void) -> int;
+export auto init(void) -> int;
 
 } // namespace msgbus
-
-#endif	/* !NETD_MSGBUS_H_INCLUDED */

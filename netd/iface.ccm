@@ -20,8 +20,7 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef	NETD_IFACE_H_INCLUDED
-#define	NETD_IFACE_H_INCLUDED
+module;
 
 #include	<sys/types.h>
 #include	<sys/socket.h>
@@ -38,16 +37,20 @@
 #include	"db.hh"
 #include	"defs.hh"
 
+export module iface;
+
+import network;
+
 namespace netd::iface {
 
 /*
  * manage running interfaces.
  */
 
-auto init(void) -> int;
+export auto init(void) -> int;
 
 /* an address assigned to an interface */
-struct ifaddr {
+export struct ifaddr {
 	int			ifa_family	= 0;
 	union {
 		struct ether_addr	ifa_ether;
@@ -57,7 +60,7 @@ struct ifaddr {
 	int			ifa_plen	= 0;	/* prefix length */
 };
 
-ifaddr *nullable ifaddr_new(int family, void *nonnull addr, int plen);
+export ifaddr *nullable ifaddr_new(int family, void *nonnull addr, int plen);
 
 /*
  * an interface.  this represents an interface which is active on the system
@@ -69,9 +72,7 @@ constexpr unsigned intf_state_interval = 5;
 /* how many previous periods to store; 6 * 5 = 30 seconds */
 constexpr unsigned intf_state_history = 6;
 
-struct network;
-
-struct interface {
+export struct interface {
 	interface() = default;
 	interface(interface const &) = delete;
 	interface(interface &&) = default;
@@ -84,7 +85,8 @@ struct interface {
 	uint8_t			if_operstate = 0;
 	uint32_t		if_flags = 0;
 	std::vector<ifaddr *>	if_addrs;
-	network *nullable	if_network = nullptr;
+	// TODO: put this back with a handle
+	//network *nullable	if_network = nullptr;
 	pinterface *nullable	if_pintf = nullptr;
 	/* stats history */
 	uint64_t		if_obytes[intf_state_history] = {};
@@ -93,12 +95,10 @@ struct interface {
 	uint64_t		if_rxrate = 0; /* bps */
 };
 
-extern std::map<std::string, interface *nonnull> interfaces;
+export extern std::map<std::string, interface *nonnull> interfaces;
 
 /* find an existing interface */
-auto find_interface_byname(std::string_view name) -> interface *nullable;
-auto find_interface_byindex(unsigned int ifindex) -> interface *nullable;
+export auto find_interface_byname(std::string_view name) -> interface *nullable;
+export auto find_interface_byindex(unsigned int ifindex) -> interface *nullable;
 
 } // namespace netd::iface
-
-#endif	/* !NETD_IFACE_H_INCLUDED */

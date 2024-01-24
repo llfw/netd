@@ -38,13 +38,13 @@ module;
 #include	<expected>
 
 #include	"netd.hh"
-#include	"log.hh"
 #include	"generator.hh"
 
 module network;
 
 import isam;
 import uuid;
+import log;
 
 namespace netd::network {
 

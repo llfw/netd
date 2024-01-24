@@ -4,8 +4,15 @@
 
 TARGET	= netd
 BINDIR	= sbin
-SRCS	= netd.cc kq.cc netlink.cc iface.cc log.cc ctl.cc msgbus.cc	\
-	  network.ccm network.cc
+SRCS	= netd.cc	\
+	  network.ccm network.cc	\
+	  ctl.ccm ctl.cc		\
+	  kq.ccm kq.cc			\
+	  iface.ccm iface.cc		\
+	  netlink.ccm netlink.cc	\
+	  msgbus.ccm msgbus.cc		\
+	  log.ccm log.cc		\
+	  task.ccm
 LIBS	= -lnv
 MODULES	= isam nvl uuid
 

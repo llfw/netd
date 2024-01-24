@@ -20,16 +20,15 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef	NETD_CTL_H_INCLUDED
-#define	NETD_CTL_H_INCLUDED
+module;
 
 #include	<expected>
 #include	<system_error>
 
+export module ctl;
+
 namespace netd::ctl {
 
-[[nodiscard]] auto init(void) -> std::expected<void, std::error_code>;
+export [[nodiscard]] auto init(void) -> std::expected<void, std::error_code>;
 
 } // namespace netd::ctl
-
-#endif	/* !NETD_CTL_H_INCLUDED */

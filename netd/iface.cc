@@ -20,26 +20,39 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+module;
+
+#include	<sys/types.h>
 #include	<sys/queue.h>
 #include	<sys/event.h>
+#include	<sys/socket.h>
+
+#include	<netinet/in.h>
+#include	<netinet/if_ether.h>
 
 #include	<netlink/netlink.h>
 #include	<netlink/route/common.h>
 #include	<netlink/route/route.h>
+#include	<netlink/route/interface.h>
 
 #include	<cerrno>
 #include	<cstring>
 #include	<cstdlib>
 #include	<cinttypes>
-
+#include	<coroutine>
 #include	<new>
+#include	<map>
 
-#include	"iface.hh"
-#include	"log.hh"
-#include	"msgbus.hh"
-#include	"netlink.hh"
 #include	"netd.hh"
-#include	"kq.hh"
+#include	"defs.hh"
+
+import log;
+import kq;
+import netlink;
+import msgbus;
+import task;
+
+module iface;
 
 namespace netd::iface {
 

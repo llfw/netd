@@ -22,30 +22,54 @@
 
 module;
 
-#include	<sys/queue.h>
-
-#include	<cstdlib>
-#include	<cstdint>
-
-#include	<new>
-#include	<list>
-
-#include	"netd.hh"
-
-module msgbus;
-
 /*
- * minimal implementation to make the API work.  this could obviously be much
- * more efficient.
+ * message logging (syslog and stderr).
  */
 
-// TODO: this is a no-op since the C++ conversion; decide what we want to do
-// with it.
+#include	<string>
+#include	<format>
 
-namespace msgbus {
+#include	"defs.hh"
 
-auto init(void) -> int {
-	return 0;
-}
+export module log;
 
-} // namespace msgbus
+namespace netd::log {
+
+enum class severity {
+	debug,
+	info,
+	warning,
+	error,
+	fatal,
+};
+
+auto log_message(severity, std::string_view message) -> void;
+
+template<severity sev>
+struct sev_log {
+	template<typename... Args>
+	auto operator()(std::format_string<Args...> fmt,
+			Args&&... args) const -> void {
+		auto msg = std::format(fmt,
+				       std::forward<Args>(args)...);
+		log_message(sev, msg);
+	}
+};
+
+export constexpr auto fatal = sev_log<severity::fatal>();
+export constexpr auto error = sev_log<severity::error>();
+export constexpr auto warning = sev_log<severity::warning>();
+export constexpr auto info = sev_log<severity::info>();
+export constexpr auto debug = sev_log<severity::debug>();
+
+/* get or set the log destination */
+export constexpr auto syslog	= 0x1u;
+export constexpr auto console	= 0x2u;
+export constexpr auto destmask	= 0x3u;
+
+export constexpr auto defaultdest = console;
+
+export unsigned	getdest(void);
+export void	setdest(unsigned);
+
+} // namespace netd::log

@@ -20,8 +20,7 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef	NETD_TASK_HH_INCLUDED
-#define	NETD_TASK_HH_INCLUDED
+module;
 
 /*
  * a task is an awaitable object representing a suspendable coroutine.
@@ -29,11 +28,11 @@
 
 #include	<coroutine>
 
-#include	"log.hh"
+import log;
+
+export module task;
 
 namespace netd {
-
-namespace detail {
 
 template <typename T>
 struct promise_base {
@@ -58,14 +57,10 @@ struct promise_base<void> {
 	auto await_resume() -> void {}
 };
 
-} // namespace detail
-
-template <typename T>
+export template <typename T>
 struct task {
-	struct promise_type : detail::promise_base<T> {
+	struct promise_type : promise_base<T> {
 		std::coroutine_handle<> previous{};
-		//std::exception_ptr exception{};
-		//executor *task_executor{};
 
 		auto get_return_object() {
 			return task(
@@ -158,26 +153,4 @@ struct task {
 	}
 };
 
-#if 0
-struct co_get_executor {
-	executor *task_executor = nullptr;
-
-	auto await_ready() -> bool {
-		return false;
-	}
-
-	template <typename P>
-	auto await_suspend(std::coroutine_handle<P> h) -> bool {
-		task_executor = h.promise().task_executor;
-		return false;
-	}
-
-	auto await_resume() -> executor * {
-		return task_executor;
-	}
-};
-#endif
-
 } // namespace netd
-
-#endif	/* !NETD_TASK_HH_INCLUDED */

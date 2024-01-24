@@ -177,8 +177,33 @@ auto process_requires(ucl_object_t const *rule, ucl_object_t const *reqs)
 			std::print(stderr, "no rule for {}\n", mod_);
 	}
 
+	std::print("\n");
+	ucl_object_iterate_free(reqit);
+
+#if 0
+	std::print(stderr, "doing pcm reqs\n");
+	std::print("{}.pcm:", r.primary_basename);
+
+	reqit = ucl_object_iterate_new(reqs);
+	while ((req = ucl_object_iterate_safe(
+				reqit, true)) != nullptr) {
+		auto mod = ucl_object_lookup(req,
+					     "logical-name");
+		if (!mod) {
+			std::print(stderr, "no mod\n");
+			continue;
+		}
+
+		auto mod_ = ucl_object_tostring(mod);
+		if (auto rule = find_rule(mod_); rule)
+			std::print(" {}", rule->primary_output);
+		else
+			std::print(stderr, "no rule for {}\n", mod_);
+	}
+
 	ucl_object_iterate_free(reqit);
 	std::print("\n");
+#endif
 
 	return 0;
 }

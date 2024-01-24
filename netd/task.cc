@@ -20,59 +20,10 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef	NETD_LOG_H_INCLUDED
-#define	NETD_LOG_H_INCLUDED
+module;
 
-/*
- * message logging (syslog and stderr).
- */
+import task;
 
-#include	<string>
-#include	<format>
+module task;
 
-#include	"defs.hh"
-
-namespace netd::log {
-
-enum class severity {
-	debug,
-	info,
-	warning,
-	error,
-	fatal,
-};
-
-auto log_message(severity, std::string_view message) -> void;
-
-namespace detail {
-	template<severity sev>
-	struct sev_log {
-		template<typename... Args>
-		auto operator()(std::format_string<Args...> fmt,
-				Args&&... args) const -> void {
-			auto msg = std::format(fmt,
-					       std::forward<Args>(args)...);
-			log_message(sev, msg);
-		}
-	};
-}
-
-constexpr auto fatal = detail::sev_log<severity::fatal>();
-constexpr auto error = detail::sev_log<severity::error>();
-constexpr auto warning = detail::sev_log<severity::warning>();
-constexpr auto info = detail::sev_log<severity::info>();
-constexpr auto debug = detail::sev_log<severity::debug>();
-
-/* get or set the log destination */
-constexpr auto syslog	= 0x1u;
-constexpr auto console	= 0x2u;
-constexpr auto destmask	= 0x3u;
-
-constexpr auto defaultdest = console;
-
-unsigned	getdest(void);
-void		setdest(unsigned);
-
-} // namespace netd::log
-
-#endif	/* !NETD_LOG_H_INCLUDED */
+// TODO: remove this empty module

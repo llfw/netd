@@ -32,14 +32,14 @@
 #include	<print>
 
 #include	"netd.hh"
-#include	"kq.hh"
-#include	"netlink.hh"
-#include	"log.hh"
-#include	"ctl.hh"
-#include	"msgbus.hh"
-#include	"iface.hh"
 
 import network;
+import ctl;
+import log;
+import kq;
+import iface;
+import netlink;
+import msgbus;
 
 namespace netd {
 

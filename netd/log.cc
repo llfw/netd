@@ -20,6 +20,8 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+module;
+
 #include	<cassert>
 #include	<cstdio>
 #include	<cstdlib>
@@ -28,9 +30,11 @@
 
 #include	<syslog.h>
 
-#include	"log.hh"
 #include	"netd.hh"
-#include	"kq.hh"
+
+module log;
+
+import kq;
 
 namespace netd::log {
 

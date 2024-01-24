@@ -20,6 +20,8 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+module;
+
 #include	<sys/types.h>
 #include	<sys/socket.h>
 #include	<sys/un.h>
@@ -34,20 +36,25 @@
 #include	<cerrno>
 #include	<cstdlib>
 #include	<cstring>
+#include	<expected>
+#include	<functional>
+#include	<coroutine>
 #include	<unistd.h>
 
 #include	<new>
 #include	<print>
 
 #include	"netd.hh"
-#include	"ctl.hh"
-#include	"log.hh"
-#include	"kq.hh"
 #include	"protocol.hh"
-#include	"iface.hh"
+
+module ctl;
 
 import network;
 import nvl;
+import log;
+import kq;
+import iface;
+import task;
 
 namespace netd::ctl {
 

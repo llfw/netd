@@ -20,6 +20,8 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+module;
+
 #include	<sys/types.h>
 #include	<sys/socket.h>
 
@@ -29,20 +31,24 @@
 #include	<netinet/in.h>
 #include	<arpa/inet.h>
 
-#include	<assert.h>
-#include	<errno.h>
-#include	<stdlib.h>
-#include	<string.h>
-#include	<stdio.h>
-#include	<unistd.h>
-
+#include	<cassert>
+#include	<cerrno>
+#include	<cstdlib>
+#include	<cstring>
+#include	<cstdio>
 #include	<map>
 #include	<functional>
+#include	<expected>
+#include	<coroutine>
+#include	<unistd.h>
 
-#include	"netlink.hh"
 #include	"netd.hh"
-#include	"kq.hh"
-#include	"log.hh"
+
+import log;
+import kq;
+import task;
+
+module netlink;
 
 namespace netd::netlink {
 

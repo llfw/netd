@@ -20,8 +20,7 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef	NETD_NETLINK_H_INCLUDED
-#define	NETD_NETLINK_H_INCLUDED
+module;
 
 /*
  * netlink support; handles receiving network-related events from the kernel
@@ -37,8 +36,11 @@
 #include	<memory>
 #include	<system_error>
 
-#include	"msgbus.hh"
 #include	"defs.hh"
+
+import msgbus;
+
+export module netlink;
 
 namespace netd::netlink {
 
@@ -48,7 +50,7 @@ namespace netd::netlink {
  */
 constexpr unsigned socket_bufsize = 32 * 1024;
 
-struct socket {
+export struct socket {
 	socket() = default;
 	socket(socket &&) = default;
 	socket(socket const &) = delete;
@@ -66,25 +68,26 @@ struct socket {
 };
 
 /* initialise the netlink subsystem */
-auto init(void) -> std::expected<void, std::error_code>;
+export auto init(void) -> std::expected<void, std::error_code>;
 
 /* create a new rtnetlink socket */
-auto socket_create(int flags)
+export auto socket_create(int flags)
 	-> std::expected<std::unique_ptr<socket>, std::error_code>;
 
 /* send a message on a netlink socket */
-auto socket_send(socket &, nlmsghdr *nonnull msg, size_t msglen)
+export auto socket_send(socket &, nlmsghdr *nonnull msg, size_t msglen)
 	-> std::expected<void, std::error_code>;
 
 /* receive a message on a netlink socket */
-auto socket_recv(socket &) -> std::expected<nlmsghdr *, std::error_code>;
+export auto socket_recv(socket &)
+	-> std::expected<nlmsghdr *, std::error_code>;
 
 /*
  * msgbus events
  */
 
 /* interface created */
-struct newlink_data {
+export struct newlink_data {
 	unsigned		nl_ifindex;
 	std::string		nl_ifname;
 	uint8_t			nl_operstate;
@@ -93,33 +96,31 @@ struct newlink_data {
 				nl_stats;
 };
 
-inline msgbus::event<newlink_data> evt_newlink;
+export inline msgbus::event<newlink_data> evt_newlink;
 
 /* interface destroyed */
-struct dellink_data {
+export struct dellink_data {
 	unsigned	 dl_ifindex;
 };
-inline msgbus::event<dellink_data> evt_dellink;
+export inline msgbus::event<dellink_data> evt_dellink;
 
 /* interface address created */
-struct newaddr_data {
+export struct newaddr_data {
 	unsigned	na_ifindex;
 	int		na_family;
 	int		na_plen;
 	void * nonnull	na_addr;
 };
-inline msgbus::event<newaddr_data> evt_newaddr;
+export inline msgbus::event<newaddr_data> evt_newaddr;
 
 
 /* interface address removed */
-struct deladdr_data {
+export struct deladdr_data {
 	unsigned	da_ifindex;
 	int		da_family;
 	int		da_plen;
 	void * nonnull	da_addr;
 };
-inline msgbus::event<deladdr_data> evt_deladdr;
+export inline msgbus::event<deladdr_data> evt_deladdr;
 
 } // namespace netd::netlink
-
-#endif	/* !NETD_NETLINK_H_INCLUDED */

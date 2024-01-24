@@ -1,7 +1,7 @@
 .if !target(__rules.mk__)
 __rules.mk__:
 
-.SUFFIXES: .c .cc .ccm .o .pcm .cc.o .pcm.o .module.o
+.SUFFIXES: .c .cc .ccm .o .pcm .cc.o .module.o
 
 .c.o:
 	${CC} ${CPPFLAGS} ${CFLAGS} -c $< -MMD -MF ${.OBJDIR}/$@.d -o ${.OBJDIR}/$@
