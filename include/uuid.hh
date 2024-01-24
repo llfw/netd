@@ -20,58 +20,36 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef	NETD_NETWORK_H_INCLUDED
-#define	NETD_NETWORK_H_INCLUDED
+#ifndef	NETD_UUID_H_INCLUDED
+#define	NETD_UUID_H_INCLUDED
 
 #include	<sys/uuid.h>
 
-#include	<string>
-#include	<map>
-#include	<expected>
-#include	<system_error>
-#include	<cstdint>
+#include	<functional>
 
-#include	"defs.hh"
-#include	"generator.hh"
-
-namespace netd::network {
-
-struct network;
 /*
- * a handle representing a network.
+ * utilities for dealing with UUIDs.
  */
-struct handle {
-	network			*nh_ptr;
-	uuid			 nh_uuid;
-	mutable std::uint64_t	 nh_gen;
+
+template<>
+struct std::hash<uuid> {
+	auto operator()(uuid const &s) const -> std::size_t {
+		// TODO: consider hashing node as well
+		return    std::hash<std::uint32_t>{}(s.time_low)
+			^ std::hash<std::uint16_t>{}(s.time_mid)
+			^ std::hash<std::uint16_t>{}(s.time_hi_and_version)
+			^ std::hash<std::uint8_t>{}(s.clock_seq_hi_and_reserved)
+			^ std::hash<std::uint8_t>{}(s.clock_seq_low);
+	}
 };
 
-/*
- * retrieve a network's details.
- */
+inline constexpr auto operator==(uuid const &a, uuid const &b) -> bool {
+	return	a.time_low == b.time_low
+		&& a.time_mid == b.time_mid
+		&& a.time_hi_and_version == b.time_hi_and_version
+		&& a.clock_seq_hi_and_reserved == b.clock_seq_hi_and_reserved
+		&& a.clock_seq_low == b.clock_seq_low
+		&& std::ranges::equal(a.node, b.node);
+}
 
-struct netinfo {
-	uuid			id;
-	std::string_view	name;
-};
-
-auto info(handle const &) -> std::expected<netinfo, std::error_code>;
-
-/*
- * create a new network and add it to the configuration store.
- */
-auto create(std::string_view name)
-	-> std::expected<handle, std::error_code>;
-
-/* retrieve an existing network; returns NULL if not found. */
-auto find(std::string_view name) -> std::expected<handle, std::error_code>;
-
-/* iterate all networks */
-auto findall() -> std::generator<handle>;
-
-/* delete a network.  all configuration will be removed. */
-auto remove(handle const &) -> void;
-
-} // namespace netd::network
-
-#endif	/* !NETD_NETWORK_H_INCLUDED */
+#endif	/* !NETD_UUID_H_INCLUDED */

@@ -43,7 +43,7 @@
 namespace netd {
 
 auto _panic(std::string_view msg) -> void {
-	std::print(stderr, "panic: {}", msg);
+	std::print(stderr, "panic: {}\n", msg);
 	std::fflush(stderr);
 	abort();
 }

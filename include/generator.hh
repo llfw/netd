@@ -20,58 +20,10 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef	NETD_NETWORK_H_INCLUDED
-#define	NETD_NETWORK_H_INCLUDED
+// remove this once libc++ gets generator.
 
-#include	<sys/uuid.h>
-
-#include	<string>
-#include	<map>
-#include	<expected>
-#include	<system_error>
-#include	<cstdint>
-
-#include	"defs.hh"
-#include	"generator.hh"
-
-namespace netd::network {
-
-struct network;
-/*
- * a handle representing a network.
- */
-struct handle {
-	network			*nh_ptr;
-	uuid			 nh_uuid;
-	mutable std::uint64_t	 nh_gen;
-};
-
-/*
- * retrieve a network's details.
- */
-
-struct netinfo {
-	uuid			id;
-	std::string_view	name;
-};
-
-auto info(handle const &) -> std::expected<netinfo, std::error_code>;
-
-/*
- * create a new network and add it to the configuration store.
- */
-auto create(std::string_view name)
-	-> std::expected<handle, std::error_code>;
-
-/* retrieve an existing network; returns NULL if not found. */
-auto find(std::string_view name) -> std::expected<handle, std::error_code>;
-
-/* iterate all networks */
-auto findall() -> std::generator<handle>;
-
-/* delete a network.  all configuration will be removed. */
-auto remove(handle const &) -> void;
-
-} // namespace netd::network
-
-#endif	/* !NETD_NETWORK_H_INCLUDED */
+#if __has_include(<generator>)
+#	include <generator>
+#else
+#	include "__generator.hpp"
+#endif

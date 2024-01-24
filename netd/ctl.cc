@@ -51,9 +51,20 @@
 namespace netd::ctl {
 
 struct ctlclient {
-	int	cc_fd = 0;
+	ctlclient(int fd_) : fd(fd_) {}
+
+	ctlclient(ctlclient const &) = delete;
+	ctlclient(ctlclient &&) = default;
+	~ctlclient() {
+		kq::close(fd);
+	}
+
+	auto operator=(ctlclient const &) = delete;
+	auto operator=(ctlclient &&) -> ctlclient& = default;
+
+	int	fd;
 	std::array<std::byte, proto::max_msg_size>
-		cc_buf = {};
+		buf = {};
 };
 
 using cmdhandler = std::function<task<void> (ctlclient &, nvl const &)>;
@@ -139,9 +150,8 @@ auto listener(int sfd) -> task<void> {
 			panic("ctl::listener: accept failed: {}",
 			      fd.error().message());
 
-		auto client = std::make_unique<ctlclient>();
-		client->cc_fd = *fd;
-		log::debug("acceptclient: new client fd={}", client->cc_fd);
+		auto client = std::make_unique<ctlclient>(*fd);
+		log::debug("acceptclient: new client fd={}", client->fd);
 
 		kq::run_task(client_handler(std::move(client)));
 	}
@@ -153,10 +163,10 @@ auto listener(int sfd) -> task<void> {
  * main task for handling a client.
  */
 auto client_handler(std::unique_ptr<ctlclient> client) -> task<void> {
-	log::debug("client_handler: starting, fd={}", client->cc_fd);
+	log::debug("client_handler: starting, fd={}", client->fd);
 
 	/* read the command */
-	auto nbytes = co_await kq::recvmsg(client->cc_fd, client->cc_buf);
+	auto nbytes = co_await kq::recvmsg(client->fd, client->buf);
 	if (!nbytes) {
 		log::warning("client read error: {}",
 			     nbytes.error().message());
@@ -170,7 +180,7 @@ auto client_handler(std::unique_ptr<ctlclient> client) -> task<void> {
 
 	log::debug("client_handler: msg size={}", *nbytes);
 
-	auto msgbytes = std::span(client->cc_buf).subspan(0, *nbytes);
+	auto msgbytes = std::span(client->buf).subspan(0, *nbytes);
 
 	auto cmd = nvl::unpack(msgbytes, 0);
 	if (!cmd) {
@@ -246,7 +256,7 @@ ssize_t	 n;
 	mhdr.msg_iovlen = 1;
 
 	/* TODO: assume this won't block for now */
-	n = ::sendmsg(client.cc_fd, &mhdr, MSG_EOR);
+	n = ::sendmsg(client.fd, &mhdr, MSG_EOR);
 	if (n == -1)
 		log::debug("send_response: sendmsg: {}", strerror(errno));
 	co_return;
@@ -369,10 +379,14 @@ auto h_intf_list(ctlclient &client, nvl const &/*cmd*/) -> task<void> {
 auto h_net_list(ctlclient &client, nvl const &/*cmd*/) -> task<void> {
 	auto resp = nvl();
 
-	for (auto &&[name, net] : network::networks) {
+	for (auto &&handle : network::findall()) {
+		auto net = info(handle);
+		if (!net)
+			panic("h_net_list: network::info failed");
+
 		auto nvnet = nvl();
 
-		nvnet.add_string(proto::cp_net_name, net->name());
+		nvnet.add_string(proto::cp_net_name, net->name);
 		if (auto error = nvnet.error(); error) {
 			log::error("h_net_list: nvl: {}", error->message());
 			co_return;
@@ -403,8 +417,8 @@ auto h_net_create(ctlclient &client, nvl const &cmd) -> task<void> {
 		co_return;
 	}
 
-	if (network::create(netname) == NULL)
-		co_await send_syserr(client, strerror(errno));
+	if (auto ret = network::create(netname); !ret)
+		co_await send_syserr(client, ret.error().message());
 
 	co_await send_success(client);
 	co_return;
@@ -418,14 +432,14 @@ auto h_net_delete(ctlclient &client, nvl const &cmd) -> task<void> {
 	}
 
 	auto netname = cmd.get_string(proto::cp_newnet_name);
-	auto *net = network::find(netname);
+	auto net = network::find(netname);
 
-	if (net == nullptr) {
-		co_await send_error(client, proto::ce_netnx);
+	if (!net) {
+		co_await send_syserr(client, net.error().message());
 		co_return;
 	}
 
-	network::remove(net);
+	network::remove(*net);
 	co_await send_success(client);
 	co_return;
 }

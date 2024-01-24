@@ -86,17 +86,6 @@ auto onread(int fd, onreadcb const &) -> std::expected<void, std::error_code>;
 auto  onread(int fd, onreadcb &&) -> std::expected<void, std::error_code>;
 
 /*
- * read data from the fd into the provided buffer and call the handler once the
- * read is complete.  if the read was successful, nbytes is set to the amount
- * of data which was read.  if an error occurred, nbytes is set to -errno and
- * the contents of buf are undefined.
- *
- * if the handler is rearmed, the read will be repeated with the same buffer.
- */
-using readcb = std::function<disp (int fd, ssize_t nbytes)>;
-void read(int fd, std::span<std::byte> buf, readcb);
-
-/*
  * register a timer that fires after 'duration'.  returning kq_rearm will
  * rearm the timer with the same duration.
  */
@@ -132,43 +121,25 @@ auto run_task(task<void> &&task) -> void;
 /*
  * suspend until the given fd becomes readable.
  */
-struct wait_readable {
-	int _fd;
+auto readable(int fd) -> task<void>;
 
-	explicit wait_readable(int fd)
-	: _fd(fd)
-	{ }
+/*
+ * sleep until the given timer expires.
+ */
+auto sleep(std::chrono::nanoseconds) -> task<void>;
 
-	auto await_ready() -> bool {
-		log::debug("wait_readable: await_ready() this={}",
-			   static_cast<void *>(this));
-		return false;
-	}
+template<typename Rep, typename Period>
+auto sleep(std::chrono::duration<Rep, Period> duration) -> task<void> {
+	co_await sleep(std::chrono::duration_cast<
+				std::chrono::nanoseconds
+			>(duration));
+}
 
-	template <typename P>
-	auto await_suspend(std::coroutine_handle<P> coro) -> bool {
-		log::debug("wait_readable: await_suspend() this={}",
-			   static_cast<void *>(this));
-
-		onread(_fd, [coro = std::move(coro)] (int) {
-			log::debug("wait_readable: onread() callback");
-
-			dispatch([coro = std::move(coro)] {
-				log::debug("wait_readable: dispatched");
-				coro.resume();
-			});
-
-			return disp::stop;
-		});
-
-		return true;
-	}
-
-	void await_resume() {
-		log::debug("wait_readable: await_resume() this={}",
-			   static_cast<void *>(this));
-	}
-};
+/*
+ * read data into the provided buffer.
+ */
+auto read(int fd, std::span<std::byte> buf)
+	-> task<std::expected<std::size_t, std::error_code>>;
 
 /*
  * read a single message into the provided buffer.  returns the size of the

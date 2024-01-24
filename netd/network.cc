@@ -26,51 +26,131 @@
 #include	<string.h>
 
 #include	<new>
+#include	<unordered_map>
+#include	<memory>
+#include	<list>
+#include	<ranges>
+#include	<algorithm>
 
 #include	"netd.hh"
 #include	"network.hh"
+#include	"isam.hh"
+#include	"log.hh"
+#include	"uuid.hh"
 
 namespace netd::network {
 
-std::map<std::string_view, network *> networks;
+struct network {
+	network(std::string_view name, uuid id)
+	: _name(name), _id(id) {}
 
-auto find(std::string_view name) -> network * {
-	if (auto it = networks.find(name); it != networks.end())
-		return it->second;
+	network(network const &) = delete;
+	network(network &&) = default;
 
-	errno = ESRCH;
-	return NULL;
+	auto operator=(network const &) -> network& = delete;
+	auto operator=(network &&) -> network& = default;
+
+	std::string	_name;
+	uuid		_id;
+};
+
+namespace {
+
+isam::isam<network> networks;
+
+isam::index<network, std::string_view> networks_byname(
+	networks,
+	[](network const &net) -> std::string_view { return net._name; });
+
+isam::index<network, uuid> networks_byid(
+	networks,
+	[](network const &net) { return net._id; });
+
+uint64_t generation = 0;
+
+auto add_network(network &&net) -> network * {
+	auto it = networks.insert(networks.end(), std::move(net));
+	++generation;
+	return &*it;
+}
+
+auto getbyhandle(handle const &h) -> network * {
+	if (h.nh_gen == generation)
+		return h.nh_ptr;
+
+	if (auto net = networks_byid.find(h.nh_uuid);
+	    net != networks_byid.end()) {
+		h.nh_gen = generation;
+		return h.nh_ptr;
+	}
+
+	return nullptr;
+}
+
+auto remove_byid(uuid id) -> bool {
+	if (auto it = networks_byid.find(id); it != networks_byid.end()) {
+		auto lit = it->second;
+		networks.erase(lit);
+		++generation;
+		return true;
+	}
+
+	return false;
+}
+
+auto make_handle(network *net) -> handle {
+	auto h = handle();
+	h.nh_ptr = net;
+	h.nh_uuid = net->_id;
+	h.nh_gen = generation;
+	return h;
+}
+
+} // anonymous namespace
+
+auto find(std::string_view name) -> std::expected<handle, std::error_code> {
+	if (auto it = networks_byname.find(name);
+	    it != networks_byname.end())
+		return make_handle(&*it->second);
+	else
+		return std::unexpected(std::make_error_code(std::errc(ESRCH)));
+}
+
+auto findall() -> std::generator<handle> {
+	for (auto &&net: networks)
+		co_yield make_handle(&net);
+}
+
+auto info(handle const &h) -> std::expected<netinfo, std::error_code> {
+	auto net = getbyhandle(h);
+	if (!net)
+		panic("network: invalid handle");
+
+	netinfo ret;
+	ret.id = net->_id;
+	ret.name = net->_name;
+	return ret;
 }
 
 auto create(std::string_view name)
-	-> std::expected<network *, std::error_code>
+	-> std::expected<handle, std::error_code>
 {
-struct network	*net;
-
-	if (find(name) != NULL)
+	if (find(name))
 		return std::unexpected(
 			std::make_error_code(std::errc(EEXIST)));
 
-	if ((net = new (std::nothrow) network(name)) == NULL)
-		return std::unexpected(
-			std::make_error_code(std::errc(ENOMEM)));
+	uuid id;
+	if (uuidgen(&id, 1) == -1)
+		panic("network: uuidgen: %s", strerror(errno));
 
-	networks.emplace(net->name(), net);
-	return net;
+	auto net = add_network(network(name, id));
+	return make_handle(net);
 }
 
-auto remove(network *nonnull net) -> void {
-	assert(net);
-
-	for (auto &&it : networks) {
-		if (it.second != net)
-			continue;
-
-		networks.erase(it.first);
-		return;
-	}
-
-	panic("network::remove: trying to remove non-existing network");
+auto remove(handle const &h) -> void {
+	if (!remove_byid(h.nh_uuid))
+		panic("network::remove: trying to remove"
+		      " non-existing network");
 }
 
 } // namespace netd::network

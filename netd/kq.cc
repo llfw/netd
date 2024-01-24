@@ -338,42 +338,96 @@ int		 n;
 	return std::unexpected(std::make_error_code(std::errc(errno)));
 }
 
-/**
- * kqread()
- */
-
-struct readdata {
-	readcb		callback;
-	std::span<char>	buffer;
-};
-
-void
-read(int fd, std::span<std::byte> buf, readcb callback) {
-	assert(fd >= 0);
-	assert(buf.size() > 0);
-	assert(callback);
-
-	auto handler = [=](int fd) {
-		if (auto n = ::read(fd, buf.data(), buf.size()); n >= 0)
-			callback(fd, n);
-		else
-			callback(fd, -errno);
-
-		return disp::stop;
-	};
-
-	if (auto ret = onread(fd, handler); !ret)
-		dispatch([=]() {
-			// TODO: pass an error_code here
-			callback(fd, -ret.error().value());
-		});
-}
-
 /******************************************************************************
  *
  * the kq async interface.
  *
  */
+
+struct wait_readable {
+	int _fd;
+
+	explicit wait_readable(int fd)
+	: _fd(fd)
+	{ }
+
+	auto await_ready() -> bool {
+		log::debug("wait_readable: await_ready() this={}",
+			   static_cast<void *>(this));
+		return false;
+	}
+
+	template <typename P>
+	auto await_suspend(std::coroutine_handle<P> coro) -> bool {
+		log::debug("wait_readable: await_suspend() this={}",
+			   static_cast<void *>(this));
+
+		onread(_fd, [coro = std::move(coro)] (int) {
+			log::debug("wait_readable: onread() callback");
+
+			dispatch([coro = std::move(coro)] {
+				log::debug("wait_readable: dispatched");
+				coro.resume();
+			});
+
+			return disp::stop;
+		});
+
+		return true;
+	}
+
+	void await_resume() {
+		log::debug("wait_readable: await_resume() this={}",
+			   static_cast<void *>(this));
+	}
+};
+
+auto readable(int fd) -> task<void> {
+	co_await wait_readable(fd);
+	co_return;
+}
+
+struct wait_timer {
+	std::chrono::nanoseconds _duration;
+
+	explicit wait_timer(std::chrono::nanoseconds duration)
+	: _duration(duration)
+	{ }
+
+	auto await_ready() -> bool {
+		log::debug("wait_timer: await_ready() this={}",
+			   static_cast<void *>(this));
+		return false;
+	}
+
+	template <typename P>
+	auto await_suspend(std::coroutine_handle<P> coro) -> bool {
+		log::debug("wait_timer: await_suspend() this={}",
+			   static_cast<void *>(this));
+
+		timer(_duration, [coro = std::move(coro)] {
+			log::debug("wait_timer: onread() callback");
+
+			dispatch([coro = std::move(coro)] {
+				log::debug("wait_timer: dispatched");
+				coro.resume();
+			});
+
+			return disp::stop;
+		});
+
+		return true;
+	}
+
+	void await_resume() {
+		log::debug("wait_readable: await_resume() this={}",
+			   static_cast<void *>(this));
+	}
+};
+
+auto sleep(std::chrono::nanoseconds duration) -> task<void> {
+	co_await wait_timer(duration);
+}
 
 auto run_task(task<void> &&tsk) -> void {
 	auto tsk_ = new (std::nothrow) task(std::move(tsk));
@@ -385,6 +439,22 @@ auto run_task(task<void> &&tsk) -> void {
 			   static_cast<void *>(tsk_));
 		tsk_->coro_handle.resume();
 	});
+}
+
+auto read(int fd, std::span<std::byte> buf)
+	-> task<std::expected<std::size_t, std::error_code>>
+{
+	assert(fd >= 0);
+	assert(buf.size() > 0);
+
+	co_await wait_readable(fd);
+
+	auto n = ::read(fd, buf.data(), buf.size());
+	if (n < 0)
+		co_return std::unexpected(std::make_error_code(
+				std::errc(errno)));
+
+	co_return n;
 }
 
 auto recvmsg(int fd, std::span<std::byte> buf)

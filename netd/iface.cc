@@ -62,7 +62,7 @@ void	hdl_deladdr(netlink::deladdr_data);
 msgbus::sub deladdr_sub;
 
 /* stats update timer */
-kq::disp	stats();
+auto stats(void) -> task<void>;
 
 } // anonymous namespace
 
@@ -72,12 +72,7 @@ auto init(void) -> int {
 	newaddr_sub = msgbus::sub(netlink::evt_newaddr, hdl_newaddr);
 	deladdr_sub = msgbus::sub(netlink::evt_deladdr, hdl_deladdr);
 
-	auto ret = kq::timer(std::chrono::seconds(intf_state_interval), stats);
-	if (!ret) {
-		log::fatal("state_init: kqtimer: {}", ret.error().message());
-		return -1;
-	}
-
+	kq::run_task(stats());
 	return 0;
 }
 
@@ -264,7 +259,7 @@ struct rtnl_link_stats64	stats;
 
 namespace {
 
-auto stats() -> kq::disp {
+auto stats_update(void) -> task<void> {
 struct nlmsghdr		 hdr;
 
 	log::debug("iface: running stats");
@@ -273,7 +268,7 @@ struct nlmsghdr		 hdr;
 	if (!nlsr) {
 		log::error("stats: netlink::socket_create: {}",
 			   nlsr.error().message());
-		return kq::disp::rearm;
+		co_return;
 	}
 
 	auto &nls = *nlsr;
@@ -286,7 +281,7 @@ struct nlmsghdr		 hdr;
 
 	if (auto ret = socket_send(*nls, &hdr, sizeof(hdr)); !ret) {
 		log::error("stats: socket_send: {}", ret.error().message());
-		return kq::disp::rearm;
+		co_return;
 	}
 
 	/* read the interface details */
@@ -295,7 +290,7 @@ struct nlmsghdr		 hdr;
 		if (!ret) {
 			log::error("stats: socket_recv: {}",
 				   ret.error().message());
-			return kq::disp::rearm;
+			co_return;
 		}
 
 		if (*ret == nullptr)
@@ -335,8 +330,15 @@ struct nlmsghdr		 hdr;
 			}
 		}
 	}
+}
 
-	return kq::disp::rearm;
+auto stats() -> task<void> {
+	using namespace std::literals;
+
+	for (;;) {
+		co_await kq::sleep(5s);
+		co_await stats_update();
+	}
 }
 
 } // anonymous namespace
