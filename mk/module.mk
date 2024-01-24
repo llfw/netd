@@ -28,5 +28,5 @@ install: ${TARGET}
 .include "${.PARSEDIR}/vars.mk"
 .include "${.PARSEDIR}/rules.mk"
 .for src in ${SRCS}
-.include "${src:S/$/.d/}"
+.dinclude "${src:S/$/.d/}"
 .endfor

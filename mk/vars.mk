@@ -52,10 +52,10 @@ CFLAGS		+= -fsanitize=address -fsanitize=undefined
 .endif
 
 # Modules support for make depend
-_COMPDB		= ${.OBJDIR}/.compdb.json
-_P1689FILE	= ${.OBJDIR}/.p1689.json
-_MDEPSFILE	= ${.OBJDIR}/.modules.depend
-P1689MAKE	= ${.OBJDIR}/p1689make
+_COMPDB		= ${MAKEOBJDIR}/.compdb.json
+_P1689FILE	= ${MAKEOBJDIR}/.p1689.json
+_MDEPSFILE	= ${MAKEOBJDIR}/.modules.depend
+P1689MAKE	= ${MAKEOBJDIR}/p1689make
 
 .export CC CPPFLAGS CFLAGS LDFLAGS MAKEOBJDIR
 

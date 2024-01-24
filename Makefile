@@ -14,6 +14,7 @@ ${_target}:
 .endfor
 
 depend:
+	mkdir -p ${.CURDIR}/obj
 	${MAKE} -C ${.CURDIR}/p1689make
 	rm -f ${_COMPDB}
 	echo >>${_COMPDB} '['
