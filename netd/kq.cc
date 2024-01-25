@@ -264,8 +264,9 @@ auto kq_dispatch_read(struct kevent *ev) -> void
 		assert(kfd);
 		assert(kfd->kf_reader);
 
-		kfd->kf_reader.resume();
+		auto reader = kfd->kf_reader;
 		kfd->kf_reader = {};
+		reader.resume();
 	});
 }
 
@@ -378,11 +379,18 @@ auto sleep(std::chrono::nanoseconds duration) -> task<void> {
 	co_await wait_timer(duration);
 }
 
-auto run_task(task<void> &&tsk) -> void {
-	auto tsk_ = new (std::nothrow) task(std::move(tsk));
+auto run_task(jtask<void> &&tsk) -> void {
+	auto tsk_ = new (std::nothrow) jtask(std::move(tsk));
 	log::debug("run_task: start, task={}", static_cast<void *>(tsk_));
 
-	// TODO: free the task
+	tsk_->on_final_suspend([=] {
+		dispatch([=] {
+			log::debug("run_task: task@{} is finished",
+				   static_cast<void *>(tsk_));
+			delete tsk_;
+		});
+	});
+
 	dispatch([=] {
 		log::debug("run_task: dispatched, task={}",
 			   static_cast<void *>(tsk_));

@@ -54,7 +54,7 @@ namespace netd::netlink {
 namespace {
 
 /* the netlink reader job */
-[[nodiscard]] auto reader(std::unique_ptr<socket>) -> task<void>;
+[[nodiscard]] auto reader(std::unique_ptr<socket>) -> jtask<void>;
 
 void	hdl_rtm_newlink(struct nlmsghdr *nonnull);
 void	hdl_rtm_dellink(struct nlmsghdr *nonnull);
@@ -193,7 +193,7 @@ auto read_message(socket &nls, std::size_t nbytes)
 	return {};
 }
 
-auto reader(std::unique_ptr<socket> nls) -> task<void> {
+auto reader(std::unique_ptr<socket> nls) -> jtask<void> {
 	for (;;) {
 		auto ret = co_await kq::recvmsg(nls->ns_fd, nls->ns_buf);
 		if (!ret)

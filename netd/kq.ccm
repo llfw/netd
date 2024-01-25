@@ -77,7 +77,7 @@ export int close(int fd);
  * start an async task in the background.  the task will run until completion,
  * then be destroyed.
  */
-export auto run_task(task<void> &&task) -> void;
+export auto run_task(jtask<void> &&task) -> void;
 
 /*
  * suspend until the given fd becomes readable.

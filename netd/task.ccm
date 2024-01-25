@@ -27,6 +27,7 @@ module;
  */
 
 #include	<coroutine>
+#include	<functional>
 
 import log;
 
@@ -120,7 +121,7 @@ struct task {
 		log::debug("task@{}: moved", static_cast<void *>(this));
 	}
 
-	~task() {
+	virtual ~task() {
 		if (_handle) {
 			log::debug("task@{}: destroyed with handle",
 				   static_cast<void *>(this));
@@ -145,6 +146,110 @@ struct task {
 
 	auto await_resume() -> T {
 		log::debug("task@{}: await_resume", static_cast<void *>(this));
+		return _handle.promise().await_resume();
+	}
+};
+
+/*
+ * a jtask is a joinable task; once it's finished, it'll call the given
+ * handler, which should delete the task.
+ */
+export template<typename T>
+struct jtask {
+	struct promise_type : promise_base<T> {
+		std::coroutine_handle<> previous{};
+
+		auto get_return_object() {
+			return jtask(std::coroutine_handle<
+						promise_type
+					>::from_promise(*this));
+		}
+
+		auto initial_suspend() noexcept -> std::suspend_always {
+			return {};
+		}
+
+		struct final_awaiter {
+			auto await_ready() noexcept -> bool {
+				return false;
+			}
+
+			void await_resume() noexcept {}
+
+			auto await_suspend(
+				std::coroutine_handle<promise_type> h)
+				-> std::coroutine_handle<>
+			{
+				auto &prev = h.promise().previous;
+				if (prev)
+					return prev;
+
+				return std::noop_coroutine();
+			}
+		};
+
+		auto final_suspend() noexcept -> final_awaiter {
+			log::debug("promise: final_suspend");
+			if (on_final_suspend)
+				on_final_suspend();
+			return {};
+		}
+
+		void unhandled_exception() noexcept {
+			abort();
+		}
+
+		std::function<void (void)> on_final_suspend;
+	};
+
+	using handle_type = std::coroutine_handle<promise_type>;
+
+	handle_type _handle;
+
+	explicit jtask(handle_type handle)
+	: _handle(handle) {
+		log::debug("jtask@{}: created", static_cast<void *>(this));
+	}
+
+	jtask(jtask const &) = delete;
+	auto operator=(jtask const &) -> jtask & = delete;
+	auto operator=(jtask &&other) -> jtask & = delete;
+
+	jtask(jtask &&other)
+	: _handle(std::exchange(other._handle, {}))
+	{
+		log::debug("jtask@{}: moved", static_cast<void *>(this));
+	}
+
+	virtual ~jtask() {
+		if (_handle) {
+			log::debug("jtask@{}: destroyed with handle",
+				   static_cast<void *>(this));
+			_handle.destroy();
+		} else {
+			log::debug("jtask@{}: destroyed without handle",
+				   static_cast<void *>(this));
+		}
+	}
+
+	auto on_final_suspend(std::function<void (void)> handler) {
+		_handle.promise().on_final_suspend = std::move(handler);
+	}
+
+	auto await_ready() -> bool {
+		return false;
+	}
+
+	template <typename P>
+	auto await_suspend(std::coroutine_handle<P> h) {
+		log::debug("jtask@{}: await_suspend", static_cast<void *>(this));
+		auto &promise = _handle.promise();
+		promise.previous = h;
+		return _handle;
+	}
+
+	auto await_resume() -> T {
+		log::debug("jtask@{}: await_resume", static_cast<void *>(this));
 		return _handle.promise().await_resume();
 	}
 };

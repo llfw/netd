@@ -77,7 +77,7 @@ void	hdl_deladdr(netlink::deladdr_data);
 msgbus::sub deladdr_sub;
 
 /* stats update timer */
-auto stats(void) -> task<void>;
+auto stats(void) -> jtask<void>;
 
 } // anonymous namespace
 
@@ -347,7 +347,7 @@ struct nlmsghdr		 hdr;
 	}
 }
 
-auto stats() -> task<void> {
+auto stats() -> jtask<void> {
 	using namespace std::literals;
 
 	for (;;) {

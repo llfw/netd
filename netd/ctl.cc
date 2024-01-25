@@ -89,8 +89,6 @@ struct chandler {
  * command handlers
  */
 
-namespace {
-
 [[nodiscard]] auto h_intf_list(ctlclient &, nvl const &) -> task<void>;
 [[nodiscard]] auto h_net_create(ctlclient &, nvl const &) -> task<void>;
 [[nodiscard]] auto h_net_delete(ctlclient &, nvl const &) -> task<void>;
@@ -103,11 +101,9 @@ std::vector<chandler> chandlers{
 	{ proto::cc_delnet,	h_net_delete	},
 };
 
-[[nodiscard]] auto listener(int fd) -> task<void>;
-[[nodiscard]] auto client_handler(std::unique_ptr<ctlclient>) -> task<void>;
+[[nodiscard]] auto listener(int fd) -> jtask<void>;
+[[nodiscard]] auto client_handler(std::unique_ptr<ctlclient>) -> jtask<void>;
 [[nodiscard]] auto clientcmd(ctlclient &, nvl const &cmd) -> task<void>;
-
-} // anonymous namespace
 
 auto init() -> std::expected<void, std::error_code> {
 sockaddr_un	sun;
@@ -147,9 +143,7 @@ std::string	path(proto::socket_path); // for unlink
 	return {};
 }
 
-namespace {
-
-auto listener(int sfd) -> task<void> {
+auto listener(int sfd) -> jtask<void> {
 	for (;;) {
 		auto fd = co_await kq::accept4(sfd, nullptr, nullptr,
 					       SOCK_NONBLOCK | SOCK_CLOEXEC);
@@ -169,7 +163,7 @@ auto listener(int sfd) -> task<void> {
 /*
  * main task for handling a client.
  */
-auto client_handler(std::unique_ptr<ctlclient> client) -> task<void> {
+auto client_handler(std::unique_ptr<ctlclient> client) -> jtask<void> {
 	log::debug("client_handler: starting, fd={}", client->fd);
 
 	/* read the command */
@@ -269,8 +263,6 @@ ssize_t	 n;
 	co_return;
 }
 
-} // anonymous namespace
-
 /*
  * send a success response to the client, with optional STATUS_INFO.
  */
@@ -314,8 +306,6 @@ auto send_syserr(ctlclient &client, std::string_view syserr) -> task<void>
 
 	co_await send_response(client, resp);
 }
-
-namespace {
 
 auto h_intf_list(ctlclient &client, nvl const &/*cmd*/) -> task<void> {
 	auto resp = nvl();
@@ -450,7 +440,5 @@ auto h_net_delete(ctlclient &client, nvl const &cmd) -> task<void> {
 	co_await send_success(client);
 	co_return;
 }
-
-} // anonymous namespace
 
 } // namespace netd::ctl
