@@ -79,7 +79,8 @@ uint64_t generation = 0;
 
 auto add_network(network &&net) -> network * {
 	auto it = networks.insert(networks.end(), std::move(net));
-	++generation;
+	// we don't need to increment generation here because adding a new
+	// interface doesn't invalidate handles
 	return &*it;
 }
 

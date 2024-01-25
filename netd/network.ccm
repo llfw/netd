@@ -31,18 +31,20 @@ module;
 #include	"defs.hh"
 #include	"generator.hh"
 
-export module network;
-
 import uuid;
 
+export module network;
+
 namespace netd::network {
+	struct network;	/* private */
+}
 
-struct network;
-
-export {
+export namespace netd::network {
 
 /*
  * a handle representing a network.
+ *
+ * the fields of this struct should be considered private.
  */
 struct handle {
 	network			*nh_ptr;
@@ -59,6 +61,7 @@ struct netinfo {
 	std::string_view	name;
 };
 
+// TODO: remove std::expected here as this should never fail
 auto info(handle const &) -> std::expected<netinfo, std::error_code>;
 
 /*
@@ -75,6 +78,4 @@ auto findall() -> std::generator<handle>;
 /* delete a network.  all configuration will be removed. */
 auto remove(handle const &) -> void;
 
-} // export
-
-} // namespace netd::network
+} // export namespace netd::network
