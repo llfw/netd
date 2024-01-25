@@ -94,6 +94,12 @@ export auto read(int fd, std::span<std::byte> buf)
 	-> task<std::expected<std::size_t, std::error_code>>;
 
 /*
+ * write data from the provided buffer.
+ */
+export auto write(int fd, std::span<std::byte const>)
+	-> task<std::expected<std::size_t, std::error_code>>;
+
+/*
  * read a single message into the provided buffer.  reading will continue until
  * the entire message is received (MSG_EOR).
  *
@@ -107,8 +113,6 @@ auto recvmsg(int fd, std::span<std::byte> buf) ->
 /*
  * accept a connection on the given server socket.  the arguments are as
  * described in accept4(2).
- *
- * the fd will have kq::open() called on it automatically.
  */
 export [[nodiscard]]
 auto accept4(int server_fd, sockaddr *, socklen_t *, int flags)

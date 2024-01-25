@@ -212,6 +212,16 @@ auto wait_readable(int fd) -> task<void> {
 	co_await ev;
 }
 
+auto wait_writable(int fd) -> task<void> {
+	struct kevent ev{};
+
+	ev.ident = (uintptr_t)fd;
+	ev.filter = EVFILT_WRITE;
+	ev.flags = EV_ADD | EV_ENABLE | EV_ONESHOT;
+
+	co_await ev;
+}
+
 auto sleep(std::chrono::nanoseconds duration) -> task<void> {
 	struct kevent ev{};
 
@@ -246,14 +256,37 @@ auto read(int fd, std::span<std::byte> buf)
 	assert(fd >= 0);
 	assert(buf.size() > 0);
 
-	co_await wait_readable(fd);
+	// keep trying the read until we get some data, or an error
+	for (;;) {
+		auto n = ::read(fd, buf.data(), buf.size());
 
-	auto n = ::read(fd, buf.data(), buf.size());
-	if (n < 0)
-		co_return std::unexpected(std::make_error_code(
-				std::errc(errno)));
+		if (n >= 0)
+			co_return n;
 
-	co_return n;
+		if (errno != EAGAIN)
+			co_return std::unexpected(error::from_errno());
+
+		co_await wait_readable(fd);
+	}
+}
+
+auto write(int fd, std::span<std::byte const> buf)
+	-> task<std::expected<std::size_t, std::error_code>>
+{
+	assert(fd >= 0);
+	assert(buf.size() > 0);
+
+	for (;;) {
+		auto n = ::write(fd, buf.data(), buf.size());
+
+		if (n >= 0)
+			co_return n;
+
+		if (errno != EAGAIN)
+			co_return std::unexpected(error::from_errno());
+
+		co_await wait_writable(fd);
+	}
 }
 
 auto recvmsg(int fd, std::span<std::byte> buf)

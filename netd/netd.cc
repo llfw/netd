@@ -28,6 +28,7 @@
 #include	<cstdio>
 #include	<cstdlib>
 #include	<cstring>
+#include	<coroutine>
 #include	<ctime>
 #include	<print>
 
@@ -38,8 +39,37 @@ import kq;
 import iface;
 import netlink;
 import msgbus;
+import task;
 
 namespace netd {
+
+auto start() -> jtask<void> {
+	if (msgbus::init() == -1) {
+		log::fatal("msgbus init failed: {}", strerror(errno));
+		std::exit(1);
+	}
+
+	/*
+	 * iface has to be initialised before netlink so it can receive
+	 * netlink's boot-time newlink/newaddr messages.
+	 */
+	if (iface::init() == -1) {
+		log::fatal("iface init failed: {}", strerror(errno));
+		std::exit(1);
+	}
+
+	if (auto ret = co_await netlink::init(); !ret) {
+		log::fatal("netlink init failed: {}", ret.error().message());
+		std::exit(1);
+	}
+
+	if (auto ret = ctl::init(); !ret) {
+		log::fatal("ctl init failed: {}", ret.error().message());
+		std::exit(1);
+	}
+
+	log::info("startup complete");
+}
 
 } // namespace netd
 
@@ -61,33 +91,11 @@ main(int argc, char **argv) {
 		return 1;
 	}
 
-	if (msgbus::init() == -1) {
-		log::fatal("msgbus init failed: {}", strerror(errno));
-		return 1;
-	}
-
-	/*
-	 * iface has to be initialised before netlink so it can receive
-	 * netlink's boot-time newlink/newaddr messages.
-	 */
-	if (iface::init() == -1) {
-		log::fatal("iface init failed: {}", strerror(errno));
-		return 1;
-	}
-
-	if (auto ret = netlink::init(); !ret) {
-		log::fatal("netlink init failed: {}", ret.error().message());
-		return 1;
-	}
-
-	if (auto ret = ctl::init(); !ret) {
-		log::fatal("ctl init failed: {}", ret.error().message());
-		return 1;
-	}
+	kq::run_task(netd::start());
 
 	if (auto ret = kq::run(); !ret) {
 		log::fatal("kqrun: {}", ret.error().message());
-		return 1;
+		std::exit(1);
 	}
 
 	return 0;

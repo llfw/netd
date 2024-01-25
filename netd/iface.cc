@@ -294,16 +294,16 @@ struct nlmsghdr		 hdr;
 	hdr.nlmsg_type = RTM_GETLINK;
 	hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
 
-	if (auto ret = socket_send(*nls, &hdr, sizeof(hdr)); !ret) {
-		log::error("stats: socket_send: {}", ret.error().message());
+	if (auto ret = co_await nls->send(&hdr); !ret) {
+		log::error("stats: netlink send: {}", ret.error().message());
 		co_return;
 	}
 
 	/* read the interface details */
 	for (;;) {
-		auto ret = socket_recv(*nls);
+		auto ret = co_await nls->read();
 		if (!ret) {
-			log::error("stats: socket_recv: {}",
+			log::error("stats: netlink read: {}",
 				   ret.error().message());
 			co_return;
 		}
