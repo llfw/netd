@@ -147,135 +147,66 @@ init(void) {
 }
 
 /*
- * wait for this fd to become readable, then resume the given coroutine.
+ * make kevents awaitable
  */
-auto suspend_read(int fd, std::coroutine_handle<> coro) -> void {
-struct kevent	 ev;
-kqfd		*kfd;
+struct wait_kevent {
+	struct kevent &ev;
 
-	kfd = kq_get_fd(fd);
-	assert(kfd);
+	explicit wait_kevent(struct kevent &ev_) : ev(ev_) {}
 
-	kfd->kf_reader = coro;
-
-	memset(&ev, 0, sizeof(ev));
-	ev.ident = (uintptr_t)fd;
-	ev.filter = EVFILT_READ;
-	ev.flags = EV_ADD | EV_ENABLE | EV_ONESHOT;
-	ev.udata = (void *)(uintptr_t)fd;
-
-	if (kevent(kq.kq_fd, &ev, 1, NULL, 0, NULL) != 0)
-		panic("kq: kevent failed: {}", std::strerror(errno));
-}
-
-/*
- * wait for a relative timer to expire, then resume the given coroutine.
- */
-
-struct reltimer {
-	std::coroutine_handle<>	waiter;
-};
-
-auto timer(std::chrono::nanoseconds when, std::coroutine_handle<> callback)
-	-> void
-{
-struct kevent	 ev;
-reltimer	*timer;
-
-	if ((timer = new (std::nothrow) reltimer) == NULL)
-		panic("kq: out of memory");
-
-	timer->waiter = callback;
-
-	memset(&ev, 0, sizeof(ev));
-	ev.ident = reinterpret_cast<uintptr_t>(timer);
-	ev.filter = EVFILT_TIMER;
-	ev.fflags = NOTE_NSECONDS;
-	ev.data = std::chrono::duration_cast<
-			std::chrono::nanoseconds
-		>(when).count();
-	ev.flags = EV_ADD | EV_ENABLE | EV_ONESHOT;
-	ev.udata = timer;
-
-	if (kevent(kq.kq_fd, &ev, 1, NULL, 0, NULL) != 0)
-		panic("kq: kevent() failed: {}", std::strerror(errno));
-}
-
-/*
- * wait for an absolute timer to expire, then resume the given coroutine.
- */
-
-struct abstimer {
-	// the task waiting for this timer
-	std::coroutine_handle<>	waiter;
-};
-
-auto suspend_timer(
-	std::chrono::time_point<std::chrono::system_clock> when,
-	std::coroutine_handle<> coro)
-	-> void
-{
-struct kevent	 ev;
-abstimer	*timer;
-using namespace std::literals;
-
-	if ((timer = new (std::nothrow) abstimer) == NULL)
-		panic("kq: out of memory");
-
-	timer->waiter = coro;
-
-	memset(&ev, 0, sizeof(ev));
-	ev.ident = reinterpret_cast<uintptr_t>(timer);
-	ev.filter = EVFILT_TIMER;
-	ev.fflags = NOTE_ABSTIME | NOTE_NSECONDS;
-	ev.data = std::chrono::duration_cast<
-			std::chrono::nanoseconds
-		>(when.time_since_epoch()).count();
-	ev.flags = EV_ADD | EV_ENABLE | EV_ONESHOT;
-	ev.udata = timer;
-
-	if (kevent(kq.kq_fd, &ev, 1, NULL, 0, NULL) != 0)
-		panic("kq: kevent() failed: {}", std::strerror(errno));
-}
-
-auto kq_dispatch_timer(struct kevent *ev) -> void
-{
-	if (ev->fflags & NOTE_ABSTIME) {
-		auto tmr = static_cast<abstimer *>(ev->udata);
-		dispatch([=] {
-			tmr->waiter.resume();
-			delete tmr;
-		});
-	} else {
-		auto tmr = static_cast<reltimer *>(ev->udata);
-		dispatch([=] {
-			tmr->waiter.resume();
-			delete tmr;
-		});
+	auto await_ready() -> bool {
+		log::debug("wait_kevent: await_ready() this={}",
+			   static_cast<void *>(this));
+		return false;
 	}
+
+	template <typename P>
+	auto await_suspend(std::coroutine_handle<P> coro) -> bool {
+		/*
+		 * store the address of the kevent in ext[2].  this signals the
+		 * kq dispatcher that it should copy the kevent there, and then
+		 * resume the coro handle we place in ext[3].
+		 */
+		ev.ext[2] = reinterpret_cast<uintptr_t>(&ev);
+		ev.ext[3] = reinterpret_cast<uintptr_t>(coro.address());
+		log::debug("wait_kevent: await_suspend() this={}",
+			   static_cast<void *>(this));
+
+		if (kevent(kq.kq_fd, &ev, 1, nullptr, 0, nullptr) == -1)
+			panic("wait_kevent: kevent() failed: {}",
+			      std::strerror(errno));
+
+		return true;
+	}
+
+	void await_resume() {
+		log::debug("wait_kevent: await_resume() this={}",
+			   static_cast<void *>(this));
+	}
+};
+
+auto operator co_await (struct kevent &ev) {
+	return wait_kevent(ev);
 }
 
-auto kq_dispatch_read(struct kevent *ev) -> void
+auto kq_dispatch_kevent(struct kevent *ev) -> void
 {
 	dispatch([=] {
-		auto fd = (int)(uintptr_t)ev->udata;
-		auto kfd = kq_get_fd(fd);
+		log::debug("kq_dispatch_event: resuming");
 
-		assert(kfd);
-		assert(kfd->kf_reader);
+		auto evaddr = reinterpret_cast<struct kevent *>(ev->ext[2]);
+		std::memcpy(evaddr, ev, sizeof(*ev));
 
-		auto reader = kfd->kf_reader;
-		kfd->kf_reader = {};
-		reader.resume();
+		auto coroaddr = reinterpret_cast<void *>(ev->ext[3]);
+		auto coro = std::coroutine_handle<>::from_address(coroaddr);
+		coro.resume();
 	});
 }
 
 auto kq_dispatch_event(struct kevent *ev) -> void
 {
-	if (ev->filter == EVFILT_READ)
-		return kq_dispatch_read(ev);
-	else if (ev->filter == EVFILT_TIMER)
-		return kq_dispatch_timer(ev);
+	if (ev->ext[2])
+		kq_dispatch_kevent(ev);
 	else
 		panic("kq_dispatch_event: no known filters");
 }
@@ -314,71 +245,6 @@ int		 n;
  *
  */
 
-struct wait_readable {
-	int _fd;
-
-	explicit wait_readable(int fd)
-	: _fd(fd)
-	{ }
-
-	auto await_ready() -> bool {
-		log::debug("wait_readable: await_ready() this={}",
-			   static_cast<void *>(this));
-		return false;
-	}
-
-	template <typename P>
-	auto await_suspend(std::coroutine_handle<P> coro) -> bool {
-		log::debug("wait_readable: await_suspend() this={}",
-			   static_cast<void *>(this));
-
-		suspend_read(_fd, coro);
-		return true;
-	}
-
-	void await_resume() {
-		log::debug("wait_readable: await_resume() this={}",
-			   static_cast<void *>(this));
-	}
-};
-
-auto readable(int fd) -> task<void> {
-	co_await wait_readable(fd);
-	co_return;
-}
-
-struct wait_timer {
-	std::chrono::nanoseconds _duration;
-
-	explicit wait_timer(std::chrono::nanoseconds duration)
-	: _duration(duration)
-	{ }
-
-	auto await_ready() -> bool {
-		log::debug("wait_timer: await_ready() this={}",
-			   static_cast<void *>(this));
-		return false;
-	}
-
-	template <typename P>
-	auto await_suspend(std::coroutine_handle<P> coro) -> bool {
-		log::debug("wait_timer: await_suspend() this={}",
-			   static_cast<void *>(this));
-
-		timer(_duration, coro);
-		return true;
-	}
-
-	void await_resume() {
-		log::debug("wait_readable: await_resume() this={}",
-			   static_cast<void *>(this));
-	}
-};
-
-auto sleep(std::chrono::nanoseconds duration) -> task<void> {
-	co_await wait_timer(duration);
-}
-
 auto run_task(jtask<void> &&tsk) -> void {
 	auto tsk_ = new (std::nothrow) jtask(std::move(tsk));
 	log::debug("run_task: start, task={}", static_cast<void *>(tsk_));
@@ -396,6 +262,44 @@ auto run_task(jtask<void> &&tsk) -> void {
 			   static_cast<void *>(tsk_));
 		tsk_->_handle.resume();
 	});
+}
+
+auto wait_readable(int fd) -> task<void> {
+	struct kevent ev{};
+
+	ev.ident = (uintptr_t)fd;
+	ev.filter = EVFILT_READ;
+	ev.flags = EV_ADD | EV_ENABLE | EV_ONESHOT;
+
+	co_await ev;
+}
+
+auto sleep(std::chrono::nanoseconds duration) -> task<void> {
+	struct kevent ev{};
+
+	ev.ident = reinterpret_cast<uintptr_t>(&ev);
+	ev.filter = EVFILT_TIMER;
+	ev.fflags = NOTE_NSECONDS;
+	ev.data = duration.count();
+	ev.flags = EV_ADD | EV_ENABLE | EV_ONESHOT;
+
+	co_await ev;
+}
+
+auto sleep_until(std::chrono::time_point<std::chrono::system_clock> when)
+	-> task<void>
+{
+	struct kevent ev{};
+
+	ev.ident = reinterpret_cast<uintptr_t>(&ev);
+	ev.filter = EVFILT_TIMER;
+	ev.fflags = NOTE_ABSTIME | NOTE_NSECONDS;
+	ev.data = std::chrono::duration_cast<
+			std::chrono::nanoseconds
+		>(when.time_since_epoch()).count();
+	ev.flags = EV_ADD | EV_ENABLE | EV_ONESHOT;
+
+	co_await ev;
 }
 
 auto read(int fd, std::span<std::byte> buf)
