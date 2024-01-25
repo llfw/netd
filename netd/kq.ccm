@@ -51,7 +51,7 @@ namespace netd::kq {
 export inline time_t current_time;
 
 /* initialise kq */
-export int init(void);
+export auto init(void) -> std::expected<void, std::error_code>;
 
 /* start the kq runner.  only returns on failure. */
 export auto run(void) -> std::expected<void, std::error_code>;
@@ -59,15 +59,6 @@ export auto run(void) -> std::expected<void, std::error_code>;
 /* call handler() at the end of the current event loop */
 using dispatchcb = std::function<void ()>;
 export void dispatch(dispatchcb handler);
-
-/* register an fd in kqueue.  this must be done before using it. */
-export auto open(int fd) -> std::expected<void, std::error_code>;
-
-/* create a socket and register it with kq in a single operation */
-export auto socket(int, int, int) -> std::expected<int, std::error_code>;
-
-/* unregister an fd, close it and cancel any pending events */
-export int close(int fd);
 
 /******************************************************************************
  * async (coroutine) interface.

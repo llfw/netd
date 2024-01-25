@@ -54,6 +54,7 @@ import iface;
 import task;
 import panic;
 import netd.proto;
+import netd.error;
 
 namespace netd::ctl {
 
@@ -63,7 +64,7 @@ struct ctlclient {
 	ctlclient(ctlclient const &) = delete;
 	ctlclient(ctlclient &&) = default;
 	~ctlclient() {
-		kq::close(fd);
+		::close(fd);
 	}
 
 	auto operator=(ctlclient const &) = delete;
@@ -112,13 +113,13 @@ std::string	path(proto::socket_path); // for unlink
 	// TODO: close socket on error
 	(void) unlink(path.c_str());
 
-	auto sock = kq::socket(AF_UNIX,
-			       SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC,
-			       0);
+	auto sock = socket(AF_UNIX,
+			   SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC,
+			   0);
 
-	if (!sock) {
-		log::fatal("ctl::init: socket: {}", sock.error().message());
-		return std::unexpected(sock.error());
+	if (sock == -1) {
+		log::fatal("ctl::init: socket: {}", std::strerror(errno));
+		return std::unexpected(error::from_errno());
 	}
 
 	memset(&sun, 0, sizeof(sun));
@@ -126,19 +127,19 @@ std::string	path(proto::socket_path); // for unlink
 	assert(proto::socket_path.size() < sizeof(sun.sun_path));
 	std::ranges::copy(proto::socket_path, &sun.sun_path[0]);
 
-	if (bind(*sock,
+	if (bind(sock,
 		 (struct sockaddr *)&sun,
 		 (socklen_t)SUN_LEN(&sun)) == -1) {
 		log::fatal("ctl::init: bind: {}", strerror(errno));
-		return std::unexpected(std::make_error_code(std::errc(errno)));
+		return std::unexpected(error::from_errno());
 	}
 
-	if (listen(*sock, 128) == -1) {
+	if (listen(sock, 128) == -1) {
 		log::fatal("ctl::init: listen: {}", strerror(errno));
-		return std::unexpected(std::make_error_code(std::errc(errno)));
+		return std::unexpected(error::from_errno());
 	}
 
-	kq::run_task(listener(*sock));
+	kq::run_task(listener(sock));
 	log::debug("ctl::init: listening on {}", path);
 	return {};
 }

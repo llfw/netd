@@ -46,8 +46,8 @@ import log;
 import kq;
 import task;
 import panic;
-
 module netlink;
+import netd.error;
 
 namespace netd::netlink {
 
@@ -77,10 +77,8 @@ auto fetch_addresses(void) -> std::expected<void, std::error_code>;
  * netlink::socket
  */
 socket::~socket() {
-	if (ns_fd != -1) {
+	if (ns_fd != -1)
 		::close(ns_fd);
-		kq::close(ns_fd);
-	}
 }
 
 auto socket_create(int flags)
@@ -90,17 +88,15 @@ socklen_t	 optlen;
 
 	auto sock = std::make_unique<socket>();
 
-	auto kqfd = kq::socket(AF_NETLINK, SOCK_RAW | flags, NETLINK_ROUTE);
-	if (!kqfd)
-		return std::unexpected(kqfd.error());
-
-	sock->ns_fd = *kqfd;
+	sock->ns_fd = ::socket(AF_NETLINK, SOCK_RAW | flags, NETLINK_ROUTE);
+	if (sock->ns_fd == -1)
+		return std::unexpected(error::from_errno());
 
 	optval = 1;
 	optlen = sizeof(optval);
 	if (setsockopt(sock->ns_fd, SOL_NETLINK, NETLINK_MSG_INFO,
 		       &optval, optlen) != 0)
-		return std::unexpected(std::make_error_code(std::errc(errno)));
+		return std::unexpected(error::from_errno());
 
 	return sock;
 }
@@ -215,8 +211,7 @@ auto socket_getmsg(socket &nls) -> std::expected<nlmsghdr *, std::error_code> {
 nlmsghdr	*hdr = (nlmsghdr *)nls.ns_bufp;
 
 	if (!NLMSG_OK(hdr, (int)nls.ns_bufn))
-		return std::unexpected(
-			std::make_error_code(std::errc(ENOMSG)));
+		return std::unexpected(error::from_errno(ENOMSG));
 
 	hdr = (struct nlmsghdr *)nls.ns_bufp;
 	nls.ns_bufp += hdr->nlmsg_len;
@@ -234,8 +229,7 @@ auto socket_recv(socket &nls)
 
 		n = read(nls.ns_fd, &nls.ns_buf[0], nls.ns_buf.size());
 		if (n < 0)
-			return std::unexpected(
-				std::make_error_code(std::errc(errno)));
+			return std::unexpected(error::from_errno());
 
 		nls.ns_bufp = &nls.ns_buf[0];
 		nls.ns_bufn = (size_t)n;
@@ -260,7 +254,7 @@ msghdr	msg;
 	msg.msg_iovlen = 1;
 
 	if (::sendmsg(nls.ns_fd, &msg, 0) == -1)
-		return std::unexpected(std::make_error_code(std::errc(errno)));
+		return std::unexpected(error::from_errno());
 
 	return {};
 }

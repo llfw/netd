@@ -56,8 +56,8 @@ main(int argc, char **argv) {
 
 	log::info("starting");
 
-	if (kq::init() == -1) {
-		log::fatal("kqinit: {}", strerror(errno));
+	if (auto ret = kq::init(); !ret) {
+		log::fatal("kqinit: {}", ret.error().message());
 		return 1;
 	}
 

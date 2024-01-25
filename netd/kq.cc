@@ -51,22 +51,9 @@ module kq;
 
 namespace netd::kq {
 
-/* kq_fd represents a single open fd */
-#define	KQF_OPEN	0x1u
-#define	KFD_IS_OPEN(kfd)	(((kfd)->kf_flags & KQF_OPEN) == KQF_OPEN)
-
-struct kqfd {
-	// the task waiting for this fd to be readable
-	std::coroutine_handle<>	kf_reader;
-	uint8_t			kf_flags = 0;
-};
-
-static kqfd *nonnull kq_get_fd(int fd);
-
 /* kq represents a kqueue instance */
 struct kqueue {
 	int			kq_fd = 0;
-	std::vector<kqfd>	kq_fdtable;
 };
 
 /* the global instance */
@@ -79,7 +66,7 @@ static std::vector<dispatchcb> jobs;
 
 void
 dispatch(dispatchcb handler) {
-	jobs.emplace_back(handler);
+	jobs.emplace_back(std::move(handler));
 }
 
 auto runjobs(void) -> void {
@@ -90,60 +77,13 @@ auto runjobs(void) -> void {
 	jobs.clear();
 }
 
-auto open(int fd) -> std::expected<void, std::error_code> {
-size_t	elem = (size_t)fd;
-
-	if (elem >= kq.kq_fdtable.size())
-		kq.kq_fdtable.resize(elem + 1);
-
-	assert(!KFD_IS_OPEN(&kq.kq_fdtable[elem]));
-	kq.kq_fdtable[elem].kf_flags = KQF_OPEN;
-	return {};
-}
-
-auto socket(int domain, int type, int protocol)
-	-> std::expected<int, std::error_code>
-{
-int	fd;
-	if ((fd = ::socket(domain, type, protocol)) == -1)
-		return std::unexpected(std::make_error_code(std::errc(errno)));
-
-	if (auto ret = open(fd); !ret) {
-		::close(fd);
-		return std::unexpected(ret.error());
-	}
-
-	return fd;
-}
-
-int
-close(int fd) {
-kqfd	*kfd = kq_get_fd(fd);
-
-	assert(KFD_IS_OPEN(kfd));
-	kfd->kf_flags &= ~KQF_OPEN;
-	return ::close(fd);
-}
-
-
-static kqfd *
-kq_get_fd(int fd) {
-size_t	elem = (size_t)fd;
-
-	assert((size_t)fd < kq.kq_fdtable.size());
-	assert(KFD_IS_OPEN(&kq.kq_fdtable[elem]));
-	return &kq.kq_fdtable[elem];
-}
-
-int
-init(void) {
+auto init(void) -> std::expected<void, std::error_code> {
 	time(&current_time);
 
-	if ((kq.kq_fd = ::kqueuex(KQUEUE_CLOEXEC)) == -1) {
-		return -1;
-	}
+	if ((kq.kq_fd = ::kqueuex(KQUEUE_CLOEXEC)) == -1)
+		return std::unexpected(error::from_errno());
 
-	return 0;
+	return {};
 }
 
 /*
@@ -189,31 +129,25 @@ auto operator co_await (struct kevent &ev) {
 	return wait_kevent(ev);
 }
 
-auto kq_dispatch_kevent(struct kevent *ev) -> void
-{
-	dispatch([=] {
-		log::debug("kq_dispatch_event: resuming");
-
-		auto evaddr = reinterpret_cast<struct kevent *>(ev->ext[2]);
-		std::memcpy(evaddr, ev, sizeof(*ev));
-
-		auto coroaddr = reinterpret_cast<void *>(ev->ext[3]);
-		auto coro = std::coroutine_handle<>::from_address(coroaddr);
-		coro.resume();
-	});
-}
-
-auto kq_dispatch_event(struct kevent *ev) -> void
-{
-	if (ev->ext[2])
-		kq_dispatch_kevent(ev);
-	else
-		panic("kq_dispatch_event: no known filters");
-}
-
 auto run(void) -> std::expected<void, std::error_code> {
 struct kevent	 ev;
 int		 n;
+
+	auto handle = [](struct kevent &ev) {
+		dispatch([=] {
+			log::debug("kq_dispatch_event: resuming");
+
+			auto evaddr = reinterpret_cast<
+						struct kevent *
+					>(ev.ext[2]);
+			std::memcpy(evaddr, &ev, sizeof(ev));
+
+			auto coroaddr = reinterpret_cast<void *>(ev.ext[3]);
+			auto coro = std::coroutine_handle<>::from_address(
+								coroaddr);
+			coro.resume();
+		});
+	};
 
 	log::info("running");
 
@@ -225,8 +159,12 @@ int		 n;
 
 		log::debug("kqrun: got event");
 
-		if (n)
-			kq_dispatch_event(&ev);
+		if (n) {
+			if (ev.ext[2])
+				handle(ev);
+			else
+				panic("kq_dispatch_event: unexpected event");
+		}
 
 		/* handle the kqdispatch() queue */
 		log::debug("kqrun: running jobs");
@@ -384,14 +322,8 @@ auto accept4(int server_fd, sockaddr *addr, socklen_t *addrlen, int flags)
 		// try accepting forever until we get an error, or succeed.
 		auto newfd = ::accept4(server_fd, addr, addrlen, flags);
 
-		if (newfd >= 0) {
-			if (auto ret = open(newfd); !ret) {
-				::close(newfd);
-				co_return std::unexpected(ret.error());
-			}
-
+		if (newfd >= 0)
 			co_return newfd;
-		}
 
 		if (errno != EAGAIN)
 			co_return std::unexpected(error::from_errno());
