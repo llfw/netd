@@ -60,7 +60,7 @@ export namespace netd {
 template<typename T, std::size_t nvalues>
 requires std::is_arithmetic_v<T>
 struct rate {
-	using time_point = std::chrono::time_point<std::chrono::system_clock>;
+	using time_point = std::chrono::time_point<std::chrono::steady_clock>;
 
 	struct sample {
 		T		value;
@@ -73,7 +73,7 @@ struct rate {
 
 		_history[nvalues - 1] =
 			sample{value,
-			       std::chrono::system_clock::now()};
+			       std::chrono::steady_clock::now()};
 	}
 
 	auto get() -> T {
