@@ -311,8 +311,28 @@ auto send_syserr(ctlclient &client, std::string_view syserr) -> task<void>
 auto h_intf_list(ctlclient &client, nvl const &/*cmd*/) -> task<void> {
 	auto resp = nvl();
 
+	// Convert the internal operstate to the protocol value.
+	auto get_operstate = [](iface::interface const &intf) {
+		switch (intf.if_operstate) {
+		case IF_OPER_NOTPRESENT:
+			return proto::cv_iface_oper_not_present;
+		case IF_OPER_DOWN:
+			return proto::cv_iface_oper_down;
+		case IF_OPER_LOWERLAYERDOWN:
+			return proto::cv_iface_oper_lower_down;
+		case IF_OPER_TESTING:
+			return proto::cv_iface_oper_testing;
+		case IF_OPER_DORMANT:
+			return proto::cv_iface_oper_dormant;
+		case IF_OPER_UP:
+			return proto::cv_iface_oper_up;
+		default:
+			return proto::cv_iface_oper_unknown;
+		}
+	};
+
 	for (auto &&[name, intf] : iface::interfaces) {
-	uint64_t	 operstate, adminstate;
+	uint64_t	 adminstate;
 
 		auto nvint = nvl();
 
@@ -322,36 +342,7 @@ auto h_intf_list(ctlclient &client, nvl const &/*cmd*/) -> task<void> {
 		nvint.add_number(proto::cp_iface_txrate,
 				 intf->if_obytes.get() * 8);
 
-		switch (intf->if_operstate) {
-		case IF_OPER_NOTPRESENT:
-			operstate = proto::cv_iface_oper_not_present;
-			break;
-
-		case IF_OPER_DOWN:
-			operstate = proto::cv_iface_oper_down;
-			break;
-
-		case IF_OPER_LOWERLAYERDOWN:
-			operstate = proto::cv_iface_oper_lower_down;
-			break;
-
-		case IF_OPER_TESTING:
-			operstate = proto::cv_iface_oper_testing;
-			break;
-
-		case IF_OPER_DORMANT:
-			operstate = proto::cv_iface_oper_dormant;
-			break;
-
-		case IF_OPER_UP:
-			operstate = proto::cv_iface_oper_up;
-			break;
-
-		default:
-			operstate = proto::cv_iface_oper_unknown;
-			break;
-		}
-		nvint.add_number(proto::cp_iface_oper, operstate);
+		nvint.add_number(proto::cp_iface_oper, get_operstate(*intf));
 
 		if (intf->if_flags & IFF_UP)
 			adminstate = proto::cv_iface_admin_up;

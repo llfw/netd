@@ -101,7 +101,7 @@ constexpr std::string_view
 	cp_iface_rxrate		= "RX",			/* number (bits/sec) */
 	cp_iface_txrate		= "TX";			/* number (bits/sec) */
 
-constexpr int
+constexpr uint64_t
 	/* interface operational states */
 	cv_iface_oper_unknown		= 0,
 	cv_iface_oper_not_present	= 1,
