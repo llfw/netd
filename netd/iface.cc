@@ -131,15 +131,6 @@ interface		*intf;
 	intf->if_flags = msg.nl_flags;
 	intf->if_operstate = msg.nl_operstate;
 
-	/*
-	 * Set all the stats history entries to the current value to avoid
-	 * calculating a huge statistic when the interface first appears.
-	 */
-	for (unsigned i = 0; i < intf_state_history; ++i) {
-		intf->if_obytes[i] = msg.nl_stats->tx_bytes;
-		intf->if_ibytes[i] = msg.nl_stats->rx_bytes;
-	}
-
 	log::info("{}<{}>: new interface", intf->if_name, intf->if_index);
 
 	interfaces.insert({intf->if_name, intf});
@@ -246,30 +237,14 @@ interface		*intf;
 /* calculate interface stats */
 
 static void
-ifdostats(interface *intf, struct rtnl_link_stats64 *ostats) {
-uint64_t			n, i;
-struct rtnl_link_stats64	stats;
-
-	/* TODO: make this more general */
+ifdostats(interface *intf, rtnl_link_stats64 *ostats) {
+rtnl_link_stats64	stats;
 
 	/* copy out stats since netlink can misalign it */
-	memcpy(&stats, ostats, sizeof(stats));
+	std::memcpy(&stats, ostats, sizeof(stats));
 
-	/* tx */
-	memmove(intf->if_obytes, intf->if_obytes + 1,
-		sizeof(*intf->if_obytes) * (intf_state_history - 1));
-	intf->if_obytes[intf_state_history - 1] = stats.tx_bytes;
-	for (n = 1, i = 0; n < intf_state_history; ++n)
-		i += intf->if_obytes[n] - intf->if_obytes[n - 1];
-	intf->if_txrate = ((i * 8) / intf_state_history) / intf_state_interval;
-
-	/* rx */
-	memmove(intf->if_ibytes, intf->if_ibytes + 1,
-		sizeof(*intf->if_ibytes) * (intf_state_history - 1));
-	intf->if_ibytes[intf_state_history - 1] = stats.rx_bytes;
-	for (n = 1, i = 0; n < intf_state_history; ++n)
-		i += intf->if_ibytes[n] - intf->if_ibytes[n - 1];
-	intf->if_rxrate = ((i * 8) / intf_state_history) / intf_state_interval;
+	intf->if_obytes.update(stats.tx_bytes);
+	intf->if_ibytes.update(stats.rx_bytes);
 }
 
 namespace {

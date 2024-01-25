@@ -317,8 +317,10 @@ auto h_intf_list(ctlclient &client, nvl const &/*cmd*/) -> task<void> {
 		auto nvint = nvl();
 
 		nvint.add_string(proto::cp_iface_name, intf->if_name);
-		nvint.add_number(proto::cp_iface_rxrate, intf->if_rxrate);
-		nvint.add_number(proto::cp_iface_txrate, intf->if_txrate);
+		nvint.add_number(proto::cp_iface_rxrate,
+				 intf->if_ibytes.get() * 8);
+		nvint.add_number(proto::cp_iface_txrate,
+				 intf->if_obytes.get() * 8);
 
 		switch (intf->if_operstate) {
 		case IF_OPER_NOTPRESENT:

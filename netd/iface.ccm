@@ -37,9 +37,10 @@ module;
 #include	"db.hh"
 #include	"defs.hh"
 
-export module iface;
-
 import network;
+import netd.rate;
+
+export module iface;
 
 namespace netd::iface {
 
@@ -89,10 +90,8 @@ export struct interface {
 	//network *nullable	if_network = nullptr;
 	pinterface *nullable	if_pintf = nullptr;
 	/* stats history */
-	uint64_t		if_obytes[intf_state_history] = {};
-	uint64_t		if_txrate = 0; /* bps */
-	uint64_t		if_ibytes[intf_state_history] = {};
-	uint64_t		if_rxrate = 0; /* bps */
+	rate<uint64_t, 6>	if_obytes;
+	rate<uint64_t, 6>	if_ibytes;
 };
 
 export extern std::map<std::string, interface *nonnull> interfaces;

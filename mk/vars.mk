@@ -18,6 +18,13 @@ CXXFLAGS	= -std=c++23 -pedantic -O0 -g -fPIE -fstack-protector-strong \
 		  -fprebuilt-module-path=${.CURDIR}
 LDFLAGS		= -pie
 
+# if $TERM is set, assume we're running in a terminal.  there may be a better
+# way to check for this... but this allows clang to emit colours in diagnostics
+# even when using make -j.
+.if defined(TERM)
+CXXFLAGS	+= -fcolor-diagnostics
+.endif
+
 MAKEOBJDIR	?= ${TOPDIR}/obj
 .OBJDIR:	${MAKEOBJDIR}
 

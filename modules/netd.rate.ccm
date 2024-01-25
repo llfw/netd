@@ -1,0 +1,121 @@
+/*
+ * This is free and unencumbered software released into the public domain.
+ *
+ * Anyone is free to copy, modify, publish, use, compile, sell, or distribute
+ * this software, either in source code form or as a compiled binary, for any
+ * purpose, commercial or non-commercial, and by any means.
+ *
+ * In jurisdictions that recognize copyright laws, the author or authors of
+ * this software dedicate any and all copyright interest in the software to the
+ * public domain. We make this dedication for the benefit of the public at
+ * large and to the detriment of our heirs and successors. We intend this
+ * dedication to be an overt act of relinquishment in perpetuity of all present
+ * and future rights to this software under copyright law.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+ * AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+
+/*
+ * rate calculates the rate of increase over time of a monotonically-increasing
+ * counter value.
+ *
+ * create a new rate, specifying the number of historical values to store:
+ *
+ * 	auto bits = rate<uint64_t, 3>();
+ *
+ * update the rate with a new value:
+ *
+ * 	bits.update(n);
+ *
+ * fetch the current per-second value:
+ *
+ * 	auto bps = bits.get();
+ *
+ * update() can be called at any interval.
+ */
+
+module;
+
+#include	<cstdlib>
+#include	<array>
+#include	<chrono>
+#include	<concepts>
+#include	<type_traits>
+#include	<span>
+#include	<ranges>
+#include	<algorithm>
+#include	<numeric>
+#include	<utility>
+#include	<print>
+
+export module netd.rate;
+
+export namespace netd {
+
+template<typename T, std::size_t nvalues>
+requires std::is_arithmetic_v<T>
+struct rate {
+	using time_point = std::chrono::time_point<std::chrono::system_clock>;
+
+	struct sample {
+		T		value;
+		time_point	when;
+	};
+
+	auto update(T value) {
+		std::ranges::copy(std::span(_history).subspan(1),
+				  &_history[0]);
+
+		_history[nvalues - 1] =
+			sample{value,
+			       std::chrono::system_clock::now()};
+	}
+
+	auto get() -> T {
+		using namespace std::ranges;
+		using namespace std::ranges::views;
+		using namespace std::chrono;
+
+		// Only consider valid samples in the rate.
+
+		auto valid_samples =
+			_history
+			| filter([&] (auto const &sample) {
+				if (sample.when.time_since_epoch().count())
+					return true;
+
+				return false;
+			});
+
+		auto nsamples = std::distance(begin(valid_samples),
+					      end(valid_samples));
+
+		if (nsamples < 2)
+			return T(0);
+
+		auto &first = *begin(valid_samples);
+		auto &last = *rbegin(valid_samples);
+		auto diff = last.value - first.value;
+
+		if (diff == T(0))
+			return T(0);
+
+		auto timespan = last.when - first.when;
+
+		auto secs = duration_cast<seconds>(timespan).count();
+		if (secs <= 0)
+			return 0;
+
+		return diff / static_cast<T>(secs);
+	}
+
+private:
+	std::array<sample, nvalues>	_history = {};
+};
+
+} // export namespace netd
