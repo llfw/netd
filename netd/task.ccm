@@ -63,10 +63,9 @@ struct task {
 		std::coroutine_handle<> previous{};
 
 		auto get_return_object() {
-			return task(
-				std::coroutine_handle<
-					promise_type
-				>::from_promise(*this));
+			return task(std::coroutine_handle<
+						promise_type
+					>::from_promise(*this));
 		}
 
 		auto initial_suspend() noexcept -> std::suspend_always {
@@ -93,6 +92,7 @@ struct task {
 		};
 
 		auto final_suspend() noexcept -> final_awaiter {
+			log::debug("promise: final_suspend");
 			return {};
 		}
 
@@ -101,10 +101,12 @@ struct task {
 		}
 	};
 
-	std::coroutine_handle<promise_type> coro_handle;
+	using handle_type = std::coroutine_handle<promise_type>;
 
-	explicit task(std::coroutine_handle<promise_type> coro_handle_)
-	: coro_handle(coro_handle_) {
+	handle_type _handle;
+
+	explicit task(handle_type handle)
+	: _handle(handle) {
 		log::debug("task@{}: created", static_cast<void *>(this));
 	}
 
@@ -113,16 +115,16 @@ struct task {
 	auto operator=(task &&other) -> task & = delete;
 
 	task(task &&other)
-	: coro_handle(std::exchange(other.coro_handle, {}))
+	: _handle(std::exchange(other._handle, {}))
 	{
 		log::debug("task@{}: moved", static_cast<void *>(this));
 	}
 
 	~task() {
-		if (coro_handle) {
+		if (_handle) {
 			log::debug("task@{}: destroyed with handle",
 				   static_cast<void *>(this));
-			coro_handle.destroy();
+			_handle.destroy();
 		} else {
 			log::debug("task@{}: destroyed without handle",
 				   static_cast<void *>(this));
@@ -136,20 +138,14 @@ struct task {
 	template <typename P>
 	auto await_suspend(std::coroutine_handle<P> h) {
 		log::debug("task@{}: await_suspend", static_cast<void *>(this));
-		auto &promise = coro_handle.promise();
+		auto &promise = _handle.promise();
 		promise.previous = h;
-		//if (!promise.task_executor)
-		//	promise.task_executor = h.promise().task_executor;
-		return coro_handle;
+		return _handle;
 	}
 
 	auto await_resume() -> T {
 		log::debug("task@{}: await_resume", static_cast<void *>(this));
-		return coro_handle.promise().await_resume();
-	}
-
-	void start() {
-		coro_handle.resume();
+		return _handle.promise().await_resume();
 	}
 };
 

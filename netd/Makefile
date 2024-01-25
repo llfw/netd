@@ -10,11 +10,11 @@ SRCS	= netd.cc	\
 	  kq.ccm kq.cc			\
 	  iface.ccm iface.cc		\
 	  netlink.ccm netlink.cc	\
-	  msgbus.ccm msgbus.cc		\
-	  log.ccm log.cc		\
-	  panic.ccm panic.cc		\
+	  msgbus.ccm 			\
+	  log.ccm			\
+	  panic.ccm			\
 	  task.ccm
 LIBS	= -lnv
-MODULES	= isam nvl uuid
+MODULES	= isam nvl uuid netd.proto netd.error
 
 .include "../mk/prog.mk"

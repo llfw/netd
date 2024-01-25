@@ -1,3 +1,3 @@
-SRCS	= isam.ccm nvl.ccm xo.ccm uuid.ccm
+SRCS	= isam.ccm nvl.ccm xo.ccm uuid.ccm netd.proto.ccm netd.error.ccm
 
 .include "../mk/module.mk"

@@ -22,8 +22,6 @@
 
 module;
 
-#include	<sys/uuid.h>
-
 #include	<string>
 #include	<map>
 #include	<expected>
@@ -35,14 +33,18 @@ module;
 
 export module network;
 
+import uuid;
+
 namespace netd::network {
 
 struct network;
 
+export {
+
 /*
  * a handle representing a network.
  */
-export struct handle {
+struct handle {
 	network			*nh_ptr;
 	uuid			 nh_uuid;
 	mutable std::uint64_t	 nh_gen;
@@ -52,26 +54,27 @@ export struct handle {
  * retrieve a network's details.
  */
 
-export struct netinfo {
+struct netinfo {
 	uuid			id;
 	std::string_view	name;
 };
 
-export auto info(handle const &) -> std::expected<netinfo, std::error_code>;
+auto info(handle const &) -> std::expected<netinfo, std::error_code>;
 
 /*
  * create a new network and add it to the configuration store.
  */
-export auto create(std::string_view name)
-	-> std::expected<handle, std::error_code>;
+auto create(std::string_view name) -> std::expected<handle, std::error_code>;
 
 /* retrieve an existing network; returns NULL if not found. */
-export auto find(std::string_view name) -> std::expected<handle, std::error_code>;
+auto find(std::string_view name) -> std::expected<handle, std::error_code>;
 
 /* iterate all networks */
-export auto findall() -> std::generator<handle>;
+auto findall() -> std::generator<handle>;
 
 /* delete a network.  all configuration will be removed. */
-export auto remove(handle const &) -> void;
+auto remove(handle const &) -> void;
+
+} // export
 
 } // namespace netd::network

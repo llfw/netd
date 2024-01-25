@@ -28,10 +28,17 @@ module;
 
 #include	<string>
 #include	<format>
+#include	<chrono>
+#include	<print>
+#include	<cassert>
+
+#include	<syslog.h>
 
 #include	"defs.hh"
 
 export module log;
+
+using namespace std::literals;
 
 namespace netd::log {
 
@@ -43,7 +50,62 @@ enum class severity {
 	fatal,
 };
 
-auto log_message(severity, std::string_view message) -> void;
+// log destinations
+export constexpr auto syslog	= 0x1u;
+export constexpr auto console	= 0x2u;
+export constexpr auto destmask	= 0x3u;
+
+// default destination
+export constexpr auto defaultdest = console;
+
+// the current destination, a bitmask.
+unsigned logdest = defaultdest;
+
+// define names and syslog-equivalents for each of our log levels
+struct loglevel {
+	std::string_view	ll_name;
+	int			ll_syslog;
+};
+
+loglevel loglevels[] = {
+	{ .ll_name = "debug",   .ll_syslog = LOG_DEBUG },
+	{ .ll_name = "info",    .ll_syslog = LOG_INFO },
+	{ .ll_name = "warning", .ll_syslog = LOG_WARNING },
+	{ .ll_name = "error",   .ll_syslog = LOG_ERR },
+	{ .ll_name = "fatal",   .ll_syslog = LOG_CRIT },
+};
+
+// log a message to the console (stderr)
+auto log_console(loglevel level, std::string_view message) -> void {
+time_t		now;
+struct tm	tm;
+char		tmbuf[64] = {};
+
+	std::time(&now);
+	localtime_r(&now, &tm);
+	strftime(tmbuf, sizeof(tmbuf), "%Y-%m-%d %H:%M:%S %z", &tm);
+
+	std::print(stderr, "{} [{}] {}\n",
+		   tmbuf,
+		   level.ll_name,
+		   message);
+}
+
+// log a message to syslog
+auto log_syslog(loglevel  level, std::string_view message) -> void {
+	::syslog(level.ll_syslog, "%s", std::string(message).c_str());
+}
+
+// log a message based on the current destination settings
+auto log_message(severity sev, std::string_view message) -> void {
+	auto &level = loglevels[static_cast<int>(sev)];
+
+	if (logdest & syslog)
+		log_syslog(level, message);
+
+	if (logdest & console)
+		log_console(level, message);
+}
 
 template<severity sev>
 struct sev_log {
@@ -56,6 +118,7 @@ struct sev_log {
 	}
 };
 
+// this is the primary public logging API
 export constexpr auto fatal = sev_log<severity::fatal>();
 export constexpr auto error = sev_log<severity::error>();
 export constexpr auto warning = sev_log<severity::warning>();
@@ -63,13 +126,19 @@ export constexpr auto info = sev_log<severity::info>();
 export constexpr auto debug = sev_log<severity::debug>();
 
 /* get or set the log destination */
-export constexpr auto syslog	= 0x1u;
-export constexpr auto console	= 0x2u;
-export constexpr auto destmask	= 0x3u;
+auto getdest(void) -> unsigned {
+	return logdest;
+}
 
-export constexpr auto defaultdest = console;
+auto setdest(unsigned newdest) -> void {
+	assert((newdest & ~destmask) == 0u);
 
-export unsigned	getdest(void);
-export void	setdest(unsigned);
+	if ((newdest & syslog) && !(logdest & syslog))
+		openlog("dlctld", LOG_CONS | LOG_NDELAY | LOG_PID, LOG_DAEMON);
+	else if (!(newdest & syslog) && (logdest & syslog))
+		closelog();
+
+	logdest = newdest;
+}
 
 } // namespace netd::log

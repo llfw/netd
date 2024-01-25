@@ -20,8 +20,7 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef	NETD_PROTOCOL_H_INCLUDED
-#define	NETD_PROTOCOL_H_INCLUDED
+module;
 
 /*
  * the client-server protocol.
@@ -31,9 +30,11 @@
 
 #include	<paths.h>
 
-namespace proto {
+export module netd.proto;
 
 using namespace std::literals;
+
+export namespace netd::proto {
 
 constexpr std::string_view socket_path = _PATH_VARRUN "netd.sock";
 
@@ -56,24 +57,32 @@ constexpr auto cn_maxnetnam = 16u;
  */
 
 constexpr std::string_view
-	cp_cmd			= "CMD_NAME"sv,
+	cp_cmd			= "CMD_NAME",
 
-	/* generic response */
-	cp_status		= "STATUS"sv,		/* string */
-	cv_status_success		= "STATUS_SUCCESS"sv,
-	cv_status_error			= "STATUS_ERROR"sv,
-	cp_status_info		= "STATUS_INFO"sv,	/* string, optional */
-	cp_status_syserr	= "STATUS_SYSERR"sv,	/* string */
+	/*
+	 * generic response:
+	 *
+	 * STATUS is always present.  if status is STATUS_ERROR, then either
+	 * STATUS_INFO or STATUS_SYSERR should also be present.
+	 *
+	 * STATUS_INFO may be present for STATUS_SUCCESS if additional
+	 * information is available.
+	 */
+	cp_status		= "STATUS",		/* string */
+	cv_status_success		= "STATUS_SUCCESS",
+	cv_status_error			= "STATUS_ERROR",
+	cp_status_info		= "STATUS_INFO",	/* string, optional */
+	cp_status_syserr	= "STATUS_SYSERR",	/* string */
 
 	/*
 	 * error codes
 	 */
-	ce_syserr	= "SYSERR"sv,		/* system error,
+	ce_syserr	= "SYSERR",		/* system error,
 						   see STATUS_SYSERR */
-	ce_proto	= "PROTO"sv,		/* protocol error */
-	ce_netnx	= "NETNX"sv,		/* network does not exist */
-	ce_netexists	= "NETEXISTS"sv,	/* network already exists */
-	ce_netnmln	= "NETNMLN"sv;		/* network name is too long */
+	ce_proto	= "PROTO",		/* protocol error */
+	ce_netnx	= "NETNX",		/* network does not exist */
+	ce_netexists	= "NETEXISTS",	/* network already exists */
+	ce_netnmln	= "NETNMLN";		/* network name is too long */
 
 	/*
 	 * interface-related commands.
@@ -84,9 +93,9 @@ constexpr std::string_view
 	cc_getifs	= "INTF_LIST",
 
 	/* INTF_LIST - response */
-	cp_iface		= "INTFS"sv,		/* nvlist array */
-	cp_iface_name		= "NAME"sv,		/* string */
-	cp_iface_flags		= "FLAGS"sv,		/* string array */
+	cp_iface		= "INTFS",		/* nvlist array */
+	cp_iface_name		= "NAME",		/* string */
+	cp_iface_flags		= "FLAGS",		/* string array */
 	cp_iface_admin		= "ADMIN_STATE",	/* number */
 	cp_iface_oper		= "OPER_STATE",		/* number */
 	cp_iface_rxrate		= "RX",			/* number (bits/sec) */
@@ -126,6 +135,4 @@ constexpr std::string_view
 	cc_delnet		= "NET_DELETE",
 	cp_delnet_name		= "NET_NAME";
 
-} // namespace proto
-
-#endif	/* !NETD_PROTOCOL_H_INCLUDED */
+} // export namespace netd::proto

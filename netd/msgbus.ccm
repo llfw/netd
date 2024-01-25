@@ -33,6 +33,8 @@ export module msgbus;
 
 namespace msgbus {
 
+// an event which can subscribed to; ...Args are the arguments to the callback
+// function.
 export template<typename... Args>
 struct event final {
 	event() = default;
@@ -54,6 +56,7 @@ private:
 	std::set<handler *> _handlers;
 };
 
+// a subscription to an event.
 export struct sub final {
 	sub() = default;
 
@@ -108,6 +111,8 @@ private:
 };
 
 /* initialise the msgbus */
-export auto init(void) -> int;
+export auto init(void) -> int {
+	return 0;
+};
 
 } // namespace msgbus

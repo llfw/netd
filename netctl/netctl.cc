@@ -49,11 +49,11 @@ extern "C" { // TODO: file upstream bug
 #include	<cinttypes>
 #include	<unistd.h>
 
-#include	"protocol.hh"
 #include	"defs.hh"
 
 import nvl;
 import xo;
+import netd.proto;
 
 using namespace std::literals;
 

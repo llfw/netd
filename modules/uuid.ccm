@@ -29,6 +29,8 @@ module;
 
 export module uuid;
 
+export using ::uuid;
+
 /*
  * utilities for dealing with UUIDs.
  */

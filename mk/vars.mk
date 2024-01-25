@@ -8,7 +8,7 @@ CC		= cc
 CXX		= c++
 WARNFLAGS	= -W -Wall -Wextra					\
 		  -Wshorten-64-to-32 -Wsign-conversion			\
-		  -Wimplicit-fallthrough -Wmissing-prototypes
+		  -Wimplicit-fallthrough
 CPPFLAGS	= -I. -I${TOPDIR}/include
 CFLAGS		= -std=c17 -pedantic -O0 -g -fPIE -fstack-protector-strong \
 		  ${WARNFLAGS}

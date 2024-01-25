@@ -22,28 +22,21 @@
 
 module;
 
-#include	<sys/queue.h>
-
-#include	<cstdlib>
-#include	<cstdint>
-
-#include	<new>
-#include	<list>
-
-module msgbus;
+#include	<cerrno>
+#include	<system_error>
 
 /*
- * minimal implementation to make the API work.  this could obviously be much
- * more efficient.
+ * Miscellaneous error handling utilities.
  */
 
-// TODO: this is a no-op since the C++ conversion; decide what we want to do
-// with it.
+export module netd.error;
 
-namespace msgbus {
+export namespace netd::error {
 
-auto init(void) -> int {
-	return 0;
+// Create an std::error_code from an errno.
+auto from_errno(int err = errno) {
+	return std::make_error_code(std::errc(err));
+
 }
 
-} // namespace msgbus
+} // export namespace netd::error
