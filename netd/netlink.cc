@@ -53,7 +53,7 @@ module netlink;
 namespace netd::netlink {
 
 /* the netlink reader job */
-[[nodiscard]] auto reader(std::unique_ptr<socket>) -> jtask<void>;
+[[nodiscard]] auto reader(socket) -> jtask<void>;
 
 void	hdl_rtm_newlink(struct nlmsghdr *nonnull);
 void	hdl_rtm_dellink(struct nlmsghdr *nonnull);
@@ -70,28 +70,20 @@ std::map<int, std::function<void (nlmsghdr *nonnull)>> handlers = {
 auto fetch_interfaces(void) -> task<std::expected<void, std::error_code>>;
 auto fetch_addresses(void) -> task<std::expected<void, std::error_code>>;
 
-/*
- * netlink::socket
- */
-socket::~socket() {
-	if (ns_fd != -1)
-		::close(ns_fd);
-}
-
-auto socket_create(int flags)
-	-> std::expected<std::unique_ptr<socket>, std::error_code> {
+auto socket::create(int flags)
+	-> std::expected<socket, std::error_code> {
 int		 optval;
 socklen_t	 optlen;
 
-	auto sock = std::make_unique<socket>();
+	socket sock;
 
-	sock->ns_fd = ::socket(AF_NETLINK, SOCK_RAW | flags, NETLINK_ROUTE);
-	if (sock->ns_fd == -1)
+	sock._fd = ::socket(AF_NETLINK, SOCK_RAW | flags, NETLINK_ROUTE);
+	if (sock._fd == -1)
 		return std::unexpected(error::from_errno());
 
 	optval = 1;
 	optlen = sizeof(optval);
-	if (setsockopt(sock->ns_fd, SOL_NETLINK, NETLINK_MSG_INFO,
+	if (setsockopt(sock._fd, SOL_NETLINK, NETLINK_MSG_INFO,
 		       &optval, optlen) != 0)
 		return std::unexpected(error::from_errno());
 
@@ -99,7 +91,7 @@ socklen_t	 optlen;
 }
 
 auto init(void) -> task<std::expected<void, std::error_code>> {
-	auto nls = socket_create(SOCK_NONBLOCK | SOCK_CLOEXEC);
+	auto nls = socket::create(SOCK_NONBLOCK | SOCK_CLOEXEC);
 	if (!nls) {
 		log::fatal("netlink::init: socket_create: {}",
 			   nls.error().message());
@@ -117,7 +109,7 @@ auto init(void) -> task<std::expected<void, std::error_code>> {
 	};
 
 	for (auto group : groups) {
-		if (auto ret = co_await (*nls)->join(group); !ret) {
+		if (auto ret = co_await nls->join(group); !ret) {
 			log::fatal("netlink init: failed to join {}: {}",
 				   static_cast<int>(group),
 				   ret.error().message());
@@ -144,7 +136,7 @@ auto init(void) -> task<std::expected<void, std::error_code>> {
 auto socket::join(int group) -> task<std::expected<void, std::error_code>> {
 	auto optlen = socklen_t(sizeof(group));
 
-	if (setsockopt(ns_fd,
+	if (setsockopt(_fd,
 		       SOL_NETLINK, NETLINK_ADD_MEMBERSHIP,
 		       &group, optlen) == -1) {
 		co_return std::unexpected(error::from_errno());
@@ -178,7 +170,7 @@ auto socket::read(void) -> task<std::expected<nlmsghdr *, std::error_code>> {
 			_buffer.resize(_buffer.size() + blksz);
 
 		// read some data and see if it turns into a valid message
-		auto r = co_await kq::read(ns_fd,
+		auto r = co_await kq::read(_fd,
 					   std::span(_buffer)
 						.subspan(_pending));
 
@@ -202,11 +194,11 @@ auto socket::read(void) -> task<std::expected<nlmsghdr *, std::error_code>> {
 auto socket::send(nlmsghdr *nlmsg)
 	-> task<std::expected<void, std::error_code>>
 {
-	log::debug("netlink send: send fd={}", ns_fd);
+	log::debug("netlink send: send fd={}", _fd);
 
 	auto bytes = std::span(reinterpret_cast<std::byte const *>(nlmsg),
 			       nlmsg->nlmsg_len);
-	auto nbytes = co_await kq::write(ns_fd, bytes);
+	auto nbytes = co_await kq::write(_fd, bytes);
 	if (!nbytes)
 		co_return std::unexpected(nbytes.error());
 
@@ -220,9 +212,9 @@ auto socket::send(nlmsghdr *nlmsg)
  * reader: read and process new data from the netlink socket.
  */
 
-auto reader(std::unique_ptr<socket> nls) -> jtask<void> {
+auto reader(socket nls) -> jtask<void> {
 	for (;;) {
-		auto msg = co_await nls->read();
+		auto msg = co_await nls.read();
 		if (!msg)
 			panic("netlink::reader: read error: {}",
 			      msg.error().message());
@@ -241,10 +233,9 @@ auto reader(std::unique_ptr<socket> nls) -> jtask<void> {
 auto fetch_interfaces(void) -> task<std::expected<void, std::error_code>> {
 nlmsghdr	 hdr;
 
-	auto ret = socket_create(SOCK_CLOEXEC);
-	if (!ret)
-		co_return std::unexpected(ret.error());
-	auto &nls = *ret;
+	auto nls = socket::create(SOCK_CLOEXEC | SOCK_NONBLOCK);
+	if (!nls)
+		co_return std::unexpected(nls.error());
 
 	memset(&hdr, 0, sizeof(hdr));
 	hdr.nlmsg_len = sizeof(hdr);
@@ -277,10 +268,9 @@ nlmsghdr	 hdr;
 auto fetch_addresses(void) -> task<std::expected<void, std::error_code>> {
 nlmsghdr	 hdr;
 
-	auto ret = socket_create(SOCK_CLOEXEC);
-	if (!ret)
-		co_return std::unexpected(ret.error());
-	auto &nls = *ret;
+	auto nls = socket::create(SOCK_CLOEXEC | SOCK_NONBLOCK);
+	if (!nls)
+		co_return std::unexpected(nls.error());
 
 	memset(&hdr, 0, sizeof(hdr));
 	hdr.nlmsg_len = sizeof(hdr);

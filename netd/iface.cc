@@ -279,14 +279,12 @@ struct nlmsghdr		 hdr;
 
 	log::debug("iface: running stats");
 
-	auto nlsr = netlink::socket_create(0);
-	if (!nlsr) {
+	auto nls = netlink::socket::create(SOCK_CLOEXEC | SOCK_NONBLOCK);
+	if (!nls) {
 		log::error("stats: netlink::socket_create: {}",
-			   nlsr.error().message());
+			   nls.error().message());
 		co_return;
 	}
-
-	auto &nls = *nlsr;
 
 	/* ask the kernel to send us interface stats */
 	memset(&hdr, 0, sizeof(hdr));

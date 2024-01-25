@@ -35,6 +35,7 @@ module;
 #include	<expected>
 #include	<memory>
 #include	<system_error>
+#include	<unistd.h>
 
 #include	"defs.hh"
 
@@ -50,13 +51,33 @@ namespace netd::netlink {
  */
 export struct socket {
 	socket() = default;
-	socket(socket &&) = default;
+
+	socket(socket &&other) {
+		*this = std::move(other);
+	}
+
 	socket(socket const &) = delete;
 
 	auto operator=(socket const &) = delete;
-	auto operator=(socket &&) -> socket& = default;
+	auto operator=(socket &&other) -> socket& {
+		if (this != &other) {
+			_fd = std::exchange(other._fd, -1);
+			std::swap(_buffer, other._buffer);
+			_msgsize = other._msgsize;
+			_pending = other._pending;
+		}
 
-	~socket();
+		return *this;
+	}
+
+	~socket() {
+		if (_fd != -1)
+			::close(_fd);
+	}
+
+	// create a new netlink socket
+	static auto create(int flags)
+		-> std::expected<socket, std::error_code>;
 
 	// read a single message from the socket
 	auto read(void) -> task<std::expected<nlmsghdr *, std::error_code>>;
@@ -67,6 +88,7 @@ export struct socket {
 	// join the socket to the given group
 	auto join(int group) -> task<std::expected<void, std::error_code>>;
 
+private:
 	// the read buffer
 	std::vector<std::byte>	_buffer;
 	// the size of the last message we read
@@ -74,15 +96,11 @@ export struct socket {
 	// the amount of unprocessed data in the buffer
 	std::size_t		_pending = 0;
 
-	int			ns_fd = -1;
+	int			_fd = -1;
 };
 
 /* initialise the netlink subsystem */
 export auto init(void) -> task<std::expected<void, std::error_code>>;
-
-/* create a new rtnetlink socket */
-export auto socket_create(int flags)
-	-> std::expected<std::unique_ptr<socket>, std::error_code>;
 
 /*
  * msgbus events
