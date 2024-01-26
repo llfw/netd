@@ -44,115 +44,249 @@ module;
 #include	<chrono>
 #include	<new>
 #include	<map>
+#include	<expected>
 
 #include	"defs.hh"
+#include	"generator.hh"
 
 import log;
 import kq;
 import netlink;
-import msgbus;
+import netd.event;
 import task;
 import panic;
+import isam;
+import netd.rate;
+import uuid;
+import netd.error;
 
 module iface;
 
 namespace netd::iface {
 
-std::map<std::string, interface *nonnull> interfaces;
+/* how often to calculate interface stats, in seconds */
+constexpr unsigned intf_state_interval = 5;
 
-namespace {
+/* how many previous periods to store; 6 * 5 = 30 seconds */
+constexpr unsigned intf_state_history = 6;
+
+using interface_rate = rate<std::uint64_t, intf_state_history>;
+
+/*
+ * an interface.  this represents an interface which is active on the system
+ * right now.
+ */
+struct interface {
+	interface() = default;
+	interface(interface const &) = delete;
+	interface(interface &&) = default;
+	auto operator=(interface const &) -> interface& = delete;
+	auto operator=(interface &&) -> interface& = default;
+
+	uuid			if_uuid = {};
+	std::string		if_name;
+	int			if_index = 0;
+	uint8_t			if_operstate = 0;
+	uint32_t		if_flags = 0;
+	std::vector<ifaddr *>	if_addrs;
+	/* stats history */
+	interface_rate		if_obytes;
+	interface_rate		if_ibytes;
+};
+
+isam::isam<interface> interfaces;
+
+isam::index<interface, std::string_view> interfaces_byname(
+	interfaces,
+	[](interface const &intf) -> std::string_view {
+		return intf.if_name;
+	});
+
+isam::index<interface, uuid> interfaces_byuuid(
+	interfaces,
+	[](interface const &intf) {
+		return intf.if_uuid;
+	});
+
+isam::index<interface, int> interfaces_byindex(
+	interfaces,
+	[](interface const &intf) {
+		return intf.if_index;
+	});
+
+std::uint64_t generation = 0;
+
+/* add a new interface */
+auto add_intf(interface &&net) -> interface & {
+        auto it = interfaces.insert(interfaces.end(), std::move(net));
+        // we don't need to increment generation here because adding a new
+        // interface doesn't invalidate handles
+        return *it;
+}
+
+/* fetch an interface given a handle */
+auto getbyhandle(handle const &h) -> interface & {
+        if (h.ih_gen == generation)
+                return *h.ih_ptr;
+
+        if (auto intf = interfaces_byuuid.find(h.ih_uuid);
+            intf != interfaces_byuuid.end()) {
+                h.ih_gen = generation;
+                return *h.ih_ptr;
+        }
+
+	panic("iface: bad handle");
+}
+
+/* create a new handle to an existing interface */
+auto make_handle(interface *intf) -> handle {
+        auto h = handle();
+        h.ih_ptr = intf;
+        h.ih_uuid = intf->if_uuid;
+        h.ih_gen = generation;
+        return h;
+}
+
+/* public fetch functions */
+
+auto _getbyname(std::string_view name)
+	-> std::expected<interface *, std::error_code>
+{
+	if (auto intf = interfaces_byname.find(name);
+	    intf != interfaces_byname.end())
+		return &*intf->second;
+
+	return std::unexpected(error::from_errno(ESRCH));
+}
+
+auto getbyname(std::string_view name)
+	-> std::expected<handle, std::error_code>
+{
+	auto intf = _getbyname(name);
+	if (intf)
+		return make_handle(*intf);
+	return std::unexpected(intf.error());
+}
+
+auto _getbyindex(int index) -> std::expected<interface *, std::error_code>
+{
+	if (auto intf = interfaces_byindex.find(index);
+	    intf != interfaces_byindex.end())
+		return &*intf->second;
+
+	return std::unexpected(error::from_errno(ESRCH));
+}
+
+auto getbyindex(int index) -> std::expected<handle, std::error_code>
+{
+	auto intf = _getbyindex(index);
+	if (intf)
+		return make_handle(*intf);
+	return std::unexpected(intf.error());
+}
+
+auto _getbyuuid(uuid id) -> std::expected<interface *, std::error_code>
+{
+	if (auto intf = interfaces_byuuid.find(id);
+	    intf != interfaces_byuuid.end())
+		return &*intf->second;
+
+	return std::unexpected(error::from_errno(ESRCH));
+}
+
+auto getbyuuid(uuid id) -> std::expected<handle, std::error_code>
+{
+	auto intf = _getbyuuid(id);
+	if (intf)
+		return make_handle(*intf);
+	return std::unexpected(intf.error());
+}
+
+auto remove(int index) -> void {
+	auto intf = interfaces_byindex.find(index);
+	if (intf == interfaces_byindex.end())
+		panic("iface: removing non-existent index {}", index);
+	interfaces.erase(intf->second);
+}
+
+auto info(handle const &hdl) -> ifinfo {
+	auto &intf = getbyhandle(hdl);
+
+	ifinfo info;
+	info.name = intf.if_name;
+	info.uuid = intf.if_uuid;
+	info.index = intf.if_index;
+	info.operstate = intf.if_operstate;
+	info.flags = intf.if_flags;
+	info.rx_bps = intf.if_ibytes.get() * 8;
+	info.tx_bps = intf.if_obytes.get() * 8;
+
+	return info;
+}
+
+auto getall(void) -> std::generator<handle> {
+	for (auto &&intf: interfaces)
+		co_yield make_handle(&intf);
+}
 
 /* netlink event handlers */
 
 void	hdl_newlink(netlink::newlink_data);
-msgbus::sub newlink_sub;
+event::sub newlink_sub;
 
 void	hdl_dellink(netlink::dellink_data);
-msgbus::sub dellink_sub;
+event::sub dellink_sub;
 
 void	hdl_newaddr(netlink::newaddr_data);
-msgbus::sub newaddr_sub;
+event::sub newaddr_sub;
 
 void	hdl_deladdr(netlink::deladdr_data);
-msgbus::sub deladdr_sub;
+event::sub deladdr_sub;
 
 /* stats update timer */
 auto stats(void) -> jtask<void>;
 
-} // anonymous namespace
-
 auto init(void) -> int {
-	newlink_sub = msgbus::sub(netlink::evt_newlink, hdl_newlink);
-	dellink_sub = msgbus::sub(netlink::evt_dellink, hdl_dellink);
-	newaddr_sub = msgbus::sub(netlink::evt_newaddr, hdl_newaddr);
-	deladdr_sub = msgbus::sub(netlink::evt_deladdr, hdl_deladdr);
+	newlink_sub = event::sub(netlink::evt_newlink, hdl_newlink);
+	dellink_sub = event::sub(netlink::evt_dellink, hdl_dellink);
+	newaddr_sub = event::sub(netlink::evt_newaddr, hdl_newaddr);
+	deladdr_sub = event::sub(netlink::evt_deladdr, hdl_deladdr);
 
 	kq::run_task(stats());
 	return 0;
 }
 
-auto find_interface_byname(std::string_view name) -> interface * {
-	if (auto it = interfaces.find(std::string(name));
-	    it != interfaces.end())
-		return it->second;
-
-	errno = ESRCH;
-	return NULL;
-}
-
-interface *
-find_interface_byindex(unsigned int ifindex) {
-	for (auto &&[name, iface] : interfaces)
-		if (iface->if_index == ifindex)
-			return iface;
-
-	errno = ESRCH;
-	return NULL;
-}
-
-namespace {
-
 auto hdl_newlink(netlink::newlink_data msg) -> void {
-interface		*intf;
-
 	/* check for duplicate interfaces */
-	for (auto [name, intf]: interfaces) {
-		if (intf->if_name == msg.nl_ifname ||
-		    intf->if_index == msg.nl_ifindex) {
+	for (auto &&intf: interfaces) {
+		if (intf.if_name == msg.nl_ifname ||
+		    intf.if_index == msg.nl_ifindex) {
 			return;
 		}
 	}
 
-	if ((intf = new (std::nothrow) interface) == NULL)
-		panic("hdl_newlink: out of memory");
+	interface intf;
+	intf.if_index = msg.nl_ifindex;
+	intf.if_name = msg.nl_ifname;
+	intf.if_flags = msg.nl_flags;
+	intf.if_operstate = msg.nl_operstate;
 
-	intf->if_index = msg.nl_ifindex;
-	intf->if_name = msg.nl_ifname;
-	intf->if_flags = msg.nl_flags;
-	intf->if_operstate = msg.nl_operstate;
+	log::info("{}<{}>: new interface", intf.if_name, intf.if_index);
 
-	log::info("{}<{}>: new interface", intf->if_name, intf->if_index);
-
-	interfaces.insert({intf->if_name, intf});
+	interfaces.insert(interfaces.end(), std::move(intf));
 }
 
 auto hdl_dellink(netlink::dellink_data msg) -> void {
-	for (auto &&it : interfaces) {
-		if (it.second->if_index != msg.dl_ifindex)
-			continue;
+	auto intf = getbyindex(msg.dl_ifindex);
+	if (!intf)
+		log::warning("hdl_dellink: missing ifindex {}?",
+			     msg.dl_ifindex);
 
-		log::info("{}<{}>: interface destroyed",
-			  it.second->if_name,
-			  it.second->if_index);
+	auto iff = info(*intf);
+	log::info("{}<{}>: interface destroyed", iff.name, iff.index);
 
-		interfaces.erase(it.first);
-		return;
-	}
-
-	log::warning("hdl_dellink: missing ifindex {}?", msg.dl_ifindex);
+	remove(iff.index);
 }
-
-} // anonymous namespace
 
 ifaddr *
 ifaddr_new(int family, void *addr, int plen) {
@@ -203,16 +337,13 @@ err:
 	return NULL;
 }
 
-namespace {
-
 auto hdl_newaddr(netlink::newaddr_data msg) -> void {
-interface	*intf;
-ifaddr		*addr;
-
-	if ((intf = find_interface_byindex(msg.na_ifindex)) == NULL)
+	auto ret = _getbyindex(msg.na_ifindex);
+	if (!ret)
 		return;
+	auto &intf = *ret;
 
-	addr = ifaddr_new(msg.na_family, msg.na_addr, msg.na_plen);
+	auto *addr = ifaddr_new(msg.na_family, msg.na_addr, msg.na_plen);
 	if (addr == NULL)
 		/* unsupported family, etc. */
 		return;
@@ -223,31 +354,28 @@ ifaddr		*addr;
 }
 
 auto hdl_deladdr(netlink::deladdr_data msg) -> void {
-interface		*intf;
 	/* TODO: implement */
 
-	if ((intf = find_interface_byindex(msg.da_ifindex)) == NULL)
+	auto ret = _getbyindex(msg.da_ifindex);
+	if (!ret)
 		return;
+	auto &intf = *ret;
 
 	log::info("{}<{}>: address removed", intf->if_name, intf->if_index);
 }
 
-} // anonymous namespace
-
 /* calculate interface stats */
 
 static void
-ifdostats(interface *intf, rtnl_link_stats64 *ostats) {
+ifdostats(interface &intf, rtnl_link_stats64 *ostats) {
 rtnl_link_stats64	stats;
 
 	/* copy out stats since netlink can misalign it */
 	std::memcpy(&stats, ostats, sizeof(stats));
 
-	intf->if_obytes.update(stats.tx_bytes);
-	intf->if_ibytes.update(stats.rx_bytes);
+	intf.if_obytes.update(stats.tx_bytes);
+	intf.if_ibytes.update(stats.rx_bytes);
 }
-
-namespace {
 
 auto stats_update(void) -> task<void> {
 struct nlmsghdr		 hdr;
@@ -288,7 +416,6 @@ struct nlmsghdr		 hdr;
 		ifinfomsg	*ifinfo = NULL;
 		rtattr		*attrmsg = NULL;
 		size_t		 attrlen;
-		interface	*intf = NULL;
 
 		if (rhdr->nlmsg_type == NLMSG_DONE)
 			break;
@@ -298,12 +425,13 @@ struct nlmsghdr		 hdr;
 
 		ifinfo = static_cast<ifinfomsg *>(NLMSG_DATA(rhdr));
 
-		intf = find_interface_byindex((unsigned)ifinfo->ifi_index);
-		if (intf == NULL) {
+		auto intf_ = _getbyindex(ifinfo->ifi_index);
+		if (!intf_) {
 			log::error("stats: missing interface {}?",
 				   ifinfo->ifi_index);
 			continue;
 		}
+		auto &intf = *intf_;
 
 		for (attrmsg = IFLA_RTA(ifinfo), attrlen = IFLA_PAYLOAD(rhdr);
 		     RTA_OK(attrmsg, (int) attrlen);
@@ -311,7 +439,7 @@ struct nlmsghdr		 hdr;
 
 			switch (attrmsg->rta_type) {
 			case IFLA_STATS64:
-				ifdostats(intf,
+				ifdostats(*intf,
 					static_cast<rtnl_link_stats64 *>(
 						RTA_DATA(attrmsg)));
 				break;
@@ -324,11 +452,9 @@ auto stats() -> jtask<void> {
 	using namespace std::literals;
 
 	for (;;) {
-		co_await kq::sleep(5s);
+		co_await kq::sleep(1s * intf_state_interval);
 		co_await stats_update();
 	}
 }
-
-} // anonymous namespace
 
 } // namespace netd::iface

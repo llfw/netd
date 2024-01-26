@@ -38,17 +38,11 @@ import log;
 import kq;
 import iface;
 import netlink;
-import msgbus;
 import task;
 
 namespace netd {
 
 auto start() -> jtask<void> {
-	if (msgbus::init() == -1) {
-		log::fatal("msgbus init failed: {}", strerror(errno));
-		std::exit(1);
-	}
-
 	/*
 	 * iface has to be initialised before netlink so it can receive
 	 * netlink's boot-time newlink/newaddr messages.

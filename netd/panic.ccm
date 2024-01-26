@@ -39,7 +39,9 @@ namespace netd {
 
 /* log a message at the highest priority and immediately abort */
 export template<typename... Args>
-auto panic(std::format_string<Args...> fmt, Args&&... args) -> void {
+[[noreturn]] auto panic(std::format_string<Args...> fmt, Args&&... args)
+	-> void
+{
 	auto msg = std::format(fmt, std::forward<Args>(args)...);
 	_panic(msg);
 }

@@ -33,25 +33,57 @@ module;
 #include	<map>
 #include	<string>
 #include	<vector>
+#include	<expected>
 
 #include	"db.hh"
 #include	"defs.hh"
+#include	"generator.hh"
 
 import network;
 import netd.rate;
 
 export module iface;
 
-namespace netd::iface {
-
 /*
- * manage running interfaces.
+ * iface: manage running interfaces.
  */
 
-export auto init(void) -> int;
+namespace netd::iface {
+	struct interface;	/* private */
+}
+
+export namespace netd::iface {
+
+
+/* initialise the network subsystem */
+auto init(void) -> int;
+
+/*
+ * a handle representing an interface.
+ *
+ * the fields of this struct should be considered private.
+ */
+
+struct handle {
+	interface		*ih_ptr;
+	uuid			 ih_uuid;
+	mutable std::uint64_t	 ih_gen;
+};
+
+/* fetch an interface by name */
+auto getbyname(std::string_view name)
+	-> std::expected<handle, std::error_code>;
+
+/* fetch an interface by kernel ifindex */
+auto getbyindex(int index)
+	-> std::expected<handle, std::error_code>;
+
+/* fetch an interface by uuid */
+auto getbyuuid(uuid uuid)
+	-> std::expected<handle, std::error_code>;
 
 /* an address assigned to an interface */
-export struct ifaddr {
+struct ifaddr {
 	int			ifa_family	= 0;
 	union {
 		struct ether_addr	ifa_ether;
@@ -61,43 +93,21 @@ export struct ifaddr {
 	int			ifa_plen	= 0;	/* prefix length */
 };
 
-export ifaddr *nullable ifaddr_new(int family, void *nonnull addr, int plen);
-
-/*
- * an interface.  this represents an interface which is active on the system
- * right now.
- */
-
-/* how often to calculate interface stats, in seconds */
-constexpr unsigned intf_state_interval = 5;
-/* how many previous periods to store; 6 * 5 = 30 seconds */
-constexpr unsigned intf_state_history = 6;
-
-export struct interface {
-	interface() = default;
-	interface(interface const &) = delete;
-	interface(interface &&) = default;
-	auto operator=(interface const &) -> interface& = delete;
-	auto operator=(interface &&) -> interface& = default;
-
-	uuid			if_uuid = {};
-	std::string		if_name;
-	unsigned int		if_index = 0;
-	uint8_t			if_operstate = 0;
-	uint32_t		if_flags = 0;
-	std::vector<ifaddr *>	if_addrs;
-	// TODO: put this back with a handle
-	//network *nullable	if_network = nullptr;
-	pinterface *nullable	if_pintf = nullptr;
-	/* stats history */
-	rate<uint64_t, 6>	if_obytes;
-	rate<uint64_t, 6>	if_ibytes;
+/* return information about an interface */
+struct ifinfo {
+	std::string		name;
+	uuid			uuid;
+	int			index;
+	uint8_t			operstate;
+	uint32_t		flags;
+	uint64_t		rx_bps;
+	uint64_t		tx_bps;
+	std::vector<ifaddr>	addresses;
 };
 
-export extern std::map<std::string, interface *nonnull> interfaces;
+auto info(handle const &) -> ifinfo;
 
-/* find an existing interface */
-export auto find_interface_byname(std::string_view name) -> interface *nullable;
-export auto find_interface_byindex(unsigned int ifindex) -> interface *nullable;
+/* iterate all interfaces */
+auto getall(void) -> std::generator<handle>;
 
 } // namespace netd::iface

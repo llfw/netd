@@ -343,7 +343,7 @@ rtnl_link_stats64	 stats;
 		   ifinfo->ifi_flags,
 		   ifinfo->ifi_change);
 
-	msg.nl_ifindex = (unsigned)ifinfo->ifi_index;
+	msg.nl_ifindex = ifinfo->ifi_index;
 	msg.nl_flags = ifinfo->ifi_flags;
 	evt_newlink.dispatch(msg);
 }
@@ -354,7 +354,7 @@ hdl_rtm_dellink(nlmsghdr *nlmsg) {
 ifinfomsg	*ifinfo = static_cast<ifinfomsg *>(NLMSG_DATA(nlmsg));
 dellink_data	 msg;
 
-	msg.dl_ifindex = (unsigned)ifinfo->ifi_index;
+	msg.dl_ifindex = ifinfo->ifi_index;
 	evt_dellink.dispatch(msg);
 }
 
@@ -370,7 +370,7 @@ newaddr_data	 msg;
 
 	ifamsg = static_cast<ifaddrmsg *>(NLMSG_DATA(nlmsg));
 
-	msg.na_ifindex = ifamsg->ifa_index;
+	msg.na_ifindex = static_cast<int>(ifamsg->ifa_index);
 	msg.na_family = ifamsg->ifa_family;
 	msg.na_plen = ifamsg->ifa_prefixlen;
 
@@ -402,7 +402,7 @@ deladdr_data	 msg;
 
 	ifamsg = static_cast<ifaddrmsg *>(NLMSG_DATA(nlmsg));
 
-	msg.da_ifindex = ifamsg->ifa_index;
+	msg.da_ifindex = static_cast<int>(ifamsg->ifa_index);
 	msg.da_family = ifamsg->ifa_family;
 	msg.da_plen = ifamsg->ifa_prefixlen;
 

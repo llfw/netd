@@ -54,10 +54,10 @@ struct network {
 	: _name(name), _id(id) {}
 
 	network(network const &) = delete;
-	network(network &&) = default;
+	network(network &&) = delete;
 
 	auto operator=(network const &) -> network& = delete;
-	auto operator=(network &&) -> network& = default;
+	auto operator=(network &&) -> network& = delete;
 
 	std::string	_name;
 	uuid		_id;
@@ -77,24 +77,24 @@ isam::index<network, uuid> networks_byid(
 
 uint64_t generation = 0;
 
-auto add_network(network &&net) -> network * {
-	auto it = networks.insert(networks.end(), std::move(net));
+auto add_network(std::string_view name, uuid id) -> network & {
+	auto it = networks.emplace(networks.end(), name, id);
 	// we don't need to increment generation here because adding a new
-	// interface doesn't invalidate handles
-	return &*it;
+	// network doesn't invalidate handles
+	return *it;
 }
 
-auto getbyhandle(handle const &h) -> network * {
+auto getbyhandle(handle const &h) -> network & {
 	if (h.nh_gen == generation)
-		return h.nh_ptr;
+		return *h.nh_ptr;
 
 	if (auto net = networks_byid.find(h.nh_uuid);
 	    net != networks_byid.end()) {
 		h.nh_gen = generation;
-		return h.nh_ptr;
+		return *h.nh_ptr;
 	}
 
-	return nullptr;
+	panic("network: bad handle");
 }
 
 auto remove_byid(uuid id) -> bool {
@@ -108,10 +108,10 @@ auto remove_byid(uuid id) -> bool {
 	return false;
 }
 
-auto make_handle(network *net) -> handle {
+auto make_handle(network &net) -> handle {
 	auto h = handle();
-	h.nh_ptr = net;
-	h.nh_uuid = net->_id;
+	h.nh_ptr = &net;
+	h.nh_uuid = net._id;
 	h.nh_gen = generation;
 	return h;
 }
@@ -121,24 +121,21 @@ auto make_handle(network *net) -> handle {
 auto find(std::string_view name) -> std::expected<handle, std::error_code> {
 	if (auto it = networks_byname.find(name);
 	    it != networks_byname.end())
-		return make_handle(&*it->second);
+		return make_handle(*it->second);
 	else
 		return std::unexpected(std::make_error_code(std::errc(ESRCH)));
 }
 
 auto findall() -> std::generator<handle> {
 	for (auto &&net: networks)
-		co_yield make_handle(&net);
+		co_yield make_handle(net);
 }
 
 auto info(handle const &h) -> std::expected<netinfo, std::error_code> {
-	auto net = getbyhandle(h);
-	if (!net)
-		panic("network: invalid handle");
-
+	auto &net = getbyhandle(h);
 	netinfo ret;
-	ret.id = net->_id;
-	ret.name = net->_name;
+	ret.id = net._id;
+	ret.name = net._name;
 	return ret;
 }
 
@@ -153,7 +150,7 @@ auto create(std::string_view name)
 	if (uuidgen(&id, 1) == -1)
 		panic("network: uuidgen: %s", strerror(errno));
 
-	auto net = add_network(network(name, id));
+	auto &net = add_network(name, id);
 	return make_handle(net);
 }
 

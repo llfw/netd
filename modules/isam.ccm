@@ -98,8 +98,26 @@ struct isam final {
 		insert(_list.end(), v);
 	}
 
+	auto insert(T &&v) -> iterator {
+		insert(_list.end(), std::move(v));
+	}
+
+	auto insert(iterator where, T const &v) -> iterator {
+		auto it = _list.insert(where, v);
+		for (auto idx : _indices)
+			idx->insert(it);
+		return it;
+	}
 	auto insert(iterator where, T &&v) -> iterator {
 		auto it = _list.insert(where, std::move(v));
+		for (auto idx : _indices)
+			idx->insert(it);
+		return it;
+	}
+
+	template<typename... Args>
+	auto emplace(iterator where, Args&&... args) -> iterator {
+		auto it = _list.emplace(where, std::forward<Args>(args)...);
 		for (auto idx : _indices)
 			idx->insert(it);
 		return it;
@@ -156,7 +174,8 @@ private:
 	using typename index_base<T>::list_iter;
 
 public:
-	index(isam<T> &isam, extractor<T, K> ext)
+	template<typename Func>
+	index(isam<T> &isam, Func ext)
 	: index_base<T>(&isam), _ext(std::move(ext)) {
 		this->_isam->_indices.push_back(this);
 	}
@@ -225,5 +244,9 @@ private:
 	}
 
 };
+
+template<typename T, typename Func>
+index(isam<T> &, Func) -> index<T, decltype(std::declval<Func>()(std::declval<T>()))>;
+
 
 } // namespace netd::isam

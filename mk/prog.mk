@@ -34,8 +34,7 @@ depend:
 .endfor
 
 .for module in ${SRCS:M*.ccm}
-${module:R}.module.o: ${module:R}.o
-${module:R}.o: ${module:R}.pcm
+${module:R}.module.o: ${module:R}.pcm
 .endfor
 
 clean:

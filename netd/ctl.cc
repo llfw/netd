@@ -312,8 +312,8 @@ auto h_intf_list(ctlclient &client, nvl const &/*cmd*/) -> task<void> {
 	auto resp = nvl();
 
 	// Convert the internal operstate to the protocol value.
-	auto get_operstate = [](iface::interface const &intf) {
-		switch (intf.if_operstate) {
+	auto get_operstate = [](iface::ifinfo const &intf) {
+		switch (intf.operstate) {
 		case IF_OPER_NOTPRESENT:
 			return proto::cv_iface_oper_not_present;
 		case IF_OPER_DOWN:
@@ -331,20 +331,19 @@ auto h_intf_list(ctlclient &client, nvl const &/*cmd*/) -> task<void> {
 		}
 	};
 
-	for (auto &&[name, intf] : iface::interfaces) {
+	for (auto &&intf : iface::getall()) {
 	uint64_t	 adminstate;
 
 		auto nvint = nvl();
 
-		nvint.add_string(proto::cp_iface_name, intf->if_name);
-		nvint.add_number(proto::cp_iface_rxrate,
-				 intf->if_ibytes.get() * 8);
-		nvint.add_number(proto::cp_iface_txrate,
-				 intf->if_obytes.get() * 8);
+		auto iinfo = info(intf);
 
-		nvint.add_number(proto::cp_iface_oper, get_operstate(*intf));
+		nvint.add_string(proto::cp_iface_name, iinfo.name);
+		nvint.add_number(proto::cp_iface_rxrate, iinfo.rx_bps);
+		nvint.add_number(proto::cp_iface_txrate, iinfo.tx_bps);
+		nvint.add_number(proto::cp_iface_oper, get_operstate(iinfo));
 
-		if (intf->if_flags & IFF_UP)
+		if (iinfo.flags & IFF_UP)
 			adminstate = proto::cv_iface_admin_up;
 		else
 			adminstate = proto::cv_iface_admin_down;

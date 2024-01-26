@@ -23,19 +23,20 @@
 module;
 
 /*
- * msgbus is an internal message bus used to distribute events.
+ * an event object represents an event which can be subscribed to; subscribers
+ * will be notified when the event occurs.
  */
 
 #include	<functional>
 #include	<set>
 
-export module msgbus;
+export module netd.event;
 
-namespace msgbus {
+export namespace netd::event {
 
 // an event which can subscribed to; ...Args are the arguments to the callback
 // function.
-export template<typename... Args>
+template<typename... Args>
 struct event final {
 	event() = default;
 
@@ -57,7 +58,7 @@ private:
 };
 
 // a subscription to an event.
-export struct sub final {
+struct sub final {
 	sub() = default;
 
 	sub(sub &&) = default;
@@ -110,9 +111,4 @@ private:
 	std::unique_ptr<impl_base> _impl;
 };
 
-/* initialise the msgbus */
-export auto init(void) -> int {
-	return 0;
-};
-
-} // namespace msgbus
+} // export namespace netd::event

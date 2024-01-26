@@ -39,7 +39,7 @@ module;
 
 #include	"defs.hh"
 
-import msgbus;
+import netd.event;
 import task;
 
 export module netlink;
@@ -103,44 +103,43 @@ private:
 export auto init(void) -> task<std::expected<void, std::error_code>>;
 
 /*
- * msgbus events
+ * netlink events
  */
 
 /* interface created */
 export struct newlink_data {
-	unsigned		nl_ifindex;
-	std::string		nl_ifname;
-	uint8_t			nl_operstate;
-	uint32_t		nl_flags;
-	struct rtnl_link_stats64 * nonnull
-				nl_stats;
+	int			 nl_ifindex;
+	std::string		 nl_ifname;
+	uint8_t			 nl_operstate;
+	uint32_t		 nl_flags;
+	rtnl_link_stats64	*nl_stats;
 };
 
-export inline msgbus::event<newlink_data> evt_newlink;
+export inline event::event<newlink_data> evt_newlink;
 
 /* interface destroyed */
 export struct dellink_data {
-	unsigned	 dl_ifindex;
+	int		 dl_ifindex;
 };
-export inline msgbus::event<dellink_data> evt_dellink;
+export inline event::event<dellink_data> evt_dellink;
 
 /* interface address created */
 export struct newaddr_data {
-	unsigned	na_ifindex;
+	int		na_ifindex;
 	int		na_family;
 	int		na_plen;
 	void * nonnull	na_addr;
 };
-export inline msgbus::event<newaddr_data> evt_newaddr;
+export inline event::event<newaddr_data> evt_newaddr;
 
 
 /* interface address removed */
 export struct deladdr_data {
-	unsigned	da_ifindex;
+	int		da_ifindex;
 	int		da_family;
 	int		da_plen;
 	void * nonnull	da_addr;
 };
-export inline msgbus::event<deladdr_data> evt_deladdr;
+export inline event::event<deladdr_data> evt_deladdr;
 
 } // namespace netd::netlink
