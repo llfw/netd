@@ -178,7 +178,7 @@ public:
 					   _map.insert(_ext(*it), it);
 				});
 
-		_object_removed = sub(isam.object_added,
+		_object_removed = sub(isam.object_removed,
 				   [&] (auto &, auto it) {
 					   _map.remove(_map.find(_ext(*it)));
 				});
