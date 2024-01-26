@@ -22,27 +22,27 @@
 
 module;
 
-#include	<sys/types.h>
-#include	<sys/socket.h>
-#include	<sys/un.h>
-#include	<sys/nv.h>
+#include <sys/types.h>
+#include <sys/nv.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 
-#include	<netlink/netlink.h>
-#include	<netlink/route/interface.h>
+#include <netlink/netlink.h>
+#include <netlink/route/interface.h>
 
-#include	<net/if.h>
+#include <net/if.h>
 
-#include	<cassert>
-#include	<cerrno>
-#include	<cstdlib>
-#include	<cstring>
-#include	<expected>
-#include	<functional>
-#include	<coroutine>
-#include	<unistd.h>
+#include <cassert>
+#include <cerrno>
+#include <coroutine>
+#include <cstdlib>
+#include <cstring>
+#include <expected>
+#include <functional>
+#include <unistd.h>
 
-#include	<new>
-#include	<print>
+#include <new>
+#include <print>
 
 module ctl;
 
@@ -63,27 +63,28 @@ struct ctlclient {
 
 	ctlclient(ctlclient const &) = delete;
 	ctlclient(ctlclient &&) = default;
-	~ctlclient() {
+	~ctlclient()
+	{
 		::close(fd);
 	}
 
 	auto operator=(ctlclient const &) = delete;
-	auto operator=(ctlclient &&) -> ctlclient& = default;
+	auto operator=(ctlclient &&) -> ctlclient & = default;
 
-	int	fd;
-	std::array<std::byte, proto::max_msg_size>
-		buf = {};
+	int					   fd;
+	std::array<std::byte, proto::max_msg_size> buf = {};
 };
 
-using cmdhandler = std::function<task<void> (ctlclient &, nvl const &)>;
+using cmdhandler = std::function<task<void>(ctlclient &, nvl const &)>;
 
 struct chandler {
-	std::string_view	ch_cmd;
-	cmdhandler		ch_handler;
+	std::string_view ch_cmd;
+	cmdhandler	 ch_handler;
 };
 
 [[nodiscard]] auto send_error(ctlclient &, std::string_view) -> task<void>;
-[[nodiscard]] auto send_success(ctlclient &, std::string_view = {}) -> task<void>;
+[[nodiscard]] auto send_success(ctlclient &, std::string_view = {})
+	-> task<void>;
 [[nodiscard]] auto send_syserr(ctlclient &, std::string_view) -> task<void>;
 
 /*
@@ -96,26 +97,26 @@ struct chandler {
 [[nodiscard]] auto h_net_list(ctlclient &, nvl const &) -> task<void>;
 
 std::vector<chandler> chandlers{
-	{ proto::cc_getifs,	h_intf_list	},
-	{ proto::cc_getnets,	h_net_list	},
-	{ proto::cc_newnet,	h_net_create	},
-	{ proto::cc_delnet,	h_net_delete	},
+	{proto::cc_getifs,  h_intf_list },
+	{proto::cc_getnets, h_net_list  },
+	{proto::cc_newnet,  h_net_create},
+	{proto::cc_delnet,  h_net_delete},
 };
 
 [[nodiscard]] auto listener(int fd) -> jtask<void>;
 [[nodiscard]] auto client_handler(std::unique_ptr<ctlclient>) -> jtask<void>;
 [[nodiscard]] auto clientcmd(ctlclient &, nvl const &cmd) -> task<void>;
 
-auto init() -> std::expected<void, std::error_code> {
-sockaddr_un	sun;
-std::string	path(proto::socket_path); // for unlink
+auto init() -> std::expected<void, std::error_code>
+{
+	sockaddr_un sun;
+	std::string path(proto::socket_path); // for unlink
 
 	// TODO: close socket on error
-	(void) unlink(path.c_str());
+	(void)unlink(path.c_str());
 
 	auto sock = socket(AF_UNIX,
-			   SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC,
-			   0);
+			   SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
 
 	if (sock == -1) {
 		log::fatal("ctl::init: socket: {}", std::strerror(errno));
@@ -127,9 +128,8 @@ std::string	path(proto::socket_path); // for unlink
 	assert(proto::socket_path.size() < sizeof(sun.sun_path));
 	std::ranges::copy(proto::socket_path, &sun.sun_path[0]);
 
-	if (bind(sock,
-		 (struct sockaddr *)&sun,
-		 (socklen_t)SUN_LEN(&sun)) == -1) {
+	if (bind(sock, (struct sockaddr *)&sun, (socklen_t)SUN_LEN(&sun))
+	    == -1) {
 		log::fatal("ctl::init: bind: {}", strerror(errno));
 		return std::unexpected(error::from_errno());
 	}
@@ -144,7 +144,8 @@ std::string	path(proto::socket_path); // for unlink
 	return {};
 }
 
-auto listener(int sfd) -> jtask<void> {
+auto listener(int sfd) -> jtask<void>
+{
 	for (;;) {
 		auto fd = co_await kq::accept4(sfd, nullptr, nullptr,
 					       SOCK_NONBLOCK | SOCK_CLOEXEC);
@@ -164,14 +165,14 @@ auto listener(int sfd) -> jtask<void> {
 /*
  * main task for handling a client.
  */
-auto client_handler(std::unique_ptr<ctlclient> client) -> jtask<void> {
+auto client_handler(std::unique_ptr<ctlclient> client) -> jtask<void>
+{
 	log::debug("client_handler: starting, fd={}", client->fd);
 
 	/* read the command */
 	auto nbytes = co_await kq::recvmsg(client->fd, client->buf);
 	if (!nbytes) {
-		log::warning("client read error: {}",
-			     nbytes.error().message());
+		log::warning("client read error: {}", nbytes.error().message());
 		co_return;
 	}
 
@@ -217,7 +218,7 @@ auto clientcmd(ctlclient &client, nvl const &cmd) -> task<void>
 	auto cmdname = cmd.get_string(proto::cp_cmd);
 	log::debug("clientcmd: cmd={}", std::string(cmdname));
 
-	for (auto handler : chandlers) {
+	for (auto handler: chandlers) {
 		if (cmdname != handler.ch_cmd)
 			continue;
 
@@ -232,14 +233,14 @@ auto clientcmd(ctlclient &client, nvl const &cmd) -> task<void>
  * send the given response to the client.
  */
 
-auto send_response(ctlclient &client, nvl const &resp) -> task<void> {
-msghdr	 mhdr;
-iovec	 iov;
-ssize_t	 n;
+auto send_response(ctlclient &client, nvl const &resp) -> task<void>
+{
+	msghdr	mhdr;
+	iovec	iov;
+	ssize_t n;
 
 	if (auto error = resp.error(); error) {
-		log::debug("send_response: nvlist error: {}",
-			   error->message());
+		log::debug("send_response: nvlist error: {}", error->message());
 		co_return;
 	}
 
@@ -287,7 +288,8 @@ auto send_success(ctlclient &client, std::string_view info) -> task<void>
 /*
  * send an error response to the client.
  */
-auto send_error(ctlclient &client, std::string_view error) -> task<void> {
+auto send_error(ctlclient &client, std::string_view error) -> task<void>
+{
 	auto resp = nvl();
 	resp.add_string(proto::cp_status, proto::cv_status_error);
 	resp.add_string(proto::cp_status_info, error);
@@ -308,7 +310,8 @@ auto send_syserr(ctlclient &client, std::string_view syserr) -> task<void>
 	co_await send_response(client, resp);
 }
 
-auto h_intf_list(ctlclient &client, nvl const &/*cmd*/) -> task<void> {
+auto h_intf_list(ctlclient &client, nvl const & /*cmd*/) -> task<void>
+{
 	auto resp = nvl();
 
 	// Convert the internal operstate to the protocol value.
@@ -331,8 +334,8 @@ auto h_intf_list(ctlclient &client, nvl const &/*cmd*/) -> task<void> {
 		}
 	};
 
-	for (auto &&intf : iface::getall()) {
-	uint64_t	 adminstate;
+	for (auto &&intf: iface::getall()) {
+		uint64_t adminstate;
 
 		auto nvint = nvl();
 
@@ -366,10 +369,11 @@ auto h_intf_list(ctlclient &client, nvl const &/*cmd*/) -> task<void> {
 	co_return;
 }
 
-auto h_net_list(ctlclient &client, nvl const &/*cmd*/) -> task<void> {
+auto h_net_list(ctlclient &client, nvl const & /*cmd*/) -> task<void>
+{
 	auto resp = nvl();
 
-	for (auto &&handle : network::findall()) {
+	for (auto &&handle: network::findall()) {
 		auto net = info(handle);
 		if (!net)
 			panic("h_net_list: network::info failed");
@@ -385,7 +389,6 @@ auto h_net_list(ctlclient &client, nvl const &/*cmd*/) -> task<void> {
 		resp.append_nvlist_array(proto::cp_nets, nvnet);
 	}
 
-
 	if (auto error = resp.error(); error) {
 		log::error("h_net_list: resp: {}", error->message());
 		co_return;
@@ -395,7 +398,8 @@ auto h_net_list(ctlclient &client, nvl const &/*cmd*/) -> task<void> {
 	co_return;
 }
 
-auto h_net_create(ctlclient &client, nvl const &cmd) -> task<void> {
+auto h_net_create(ctlclient &client, nvl const &cmd) -> task<void>
+{
 	if (!cmd.exists_string(proto::cp_newnet_name)) {
 		co_await send_error(client, proto::ce_proto);
 		co_return;
@@ -414,8 +418,8 @@ auto h_net_create(ctlclient &client, nvl const &cmd) -> task<void> {
 	co_return;
 }
 
-
-auto h_net_delete(ctlclient &client, nvl const &cmd) -> task<void> {
+auto h_net_delete(ctlclient &client, nvl const &cmd) -> task<void>
+{
 	if (!cmd.exists_string(proto::cp_delnet_name)) {
 		co_await send_error(client, proto::ce_proto);
 		co_return;

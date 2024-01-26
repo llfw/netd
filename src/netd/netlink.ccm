@@ -27,17 +27,17 @@ module;
  * and dispatching them to the appropriate place.
  */
 
-#include	<netlink/netlink.h>
-#include	<netlink/route/interface.h>
+#include <netlink/netlink.h>
+#include <netlink/route/interface.h>
 
-#include	<string>
-#include	<array>
-#include	<expected>
-#include	<memory>
-#include	<system_error>
-#include	<unistd.h>
+#include <array>
+#include <expected>
+#include <memory>
+#include <string>
+#include <system_error>
+#include <unistd.h>
 
-#include	"defs.hh"
+#include "defs.hh"
 
 import netd.event;
 import task;
@@ -52,14 +52,16 @@ namespace netd::netlink {
 export struct socket {
 	socket() = default;
 
-	socket(socket &&other) {
+	socket(socket &&other)
+	{
 		*this = std::move(other);
 	}
 
 	socket(socket const &) = delete;
 
 	auto operator=(socket const &) = delete;
-	auto operator=(socket &&other) -> socket& {
+	auto operator=(socket &&other) -> socket &
+	{
 		if (this != &other) {
 			_fd = std::exchange(other._fd, -1);
 			std::swap(_buffer, other._buffer);
@@ -70,14 +72,14 @@ export struct socket {
 		return *this;
 	}
 
-	~socket() {
+	~socket()
+	{
 		if (_fd != -1)
 			::close(_fd);
 	}
 
 	// create a new netlink socket
-	static auto create(int flags)
-		-> std::expected<socket, std::error_code>;
+	static auto create(int flags) -> std::expected<socket, std::error_code>;
 
 	// read a single message from the socket
 	auto read(void) -> task<std::expected<nlmsghdr *, std::error_code>>;
@@ -90,13 +92,13 @@ export struct socket {
 
 private:
 	// the read buffer
-	std::vector<std::byte>	_buffer;
+	std::vector<std::byte> _buffer;
 	// the size of the last message we read
-	std::size_t		_msgsize = 0;
+	std::size_t _msgsize = 0;
 	// the amount of unprocessed data in the buffer
-	std::size_t		_pending = 0;
+	std::size_t _pending = 0;
 
-	int			_fd = -1;
+	int _fd = -1;
 };
 
 /* initialise the netlink subsystem */
@@ -108,37 +110,36 @@ export auto init(void) -> task<std::expected<void, std::error_code>>;
 
 /* interface created */
 export struct newlink_data {
-	int			 nl_ifindex;
-	std::string		 nl_ifname;
-	uint8_t			 nl_operstate;
-	uint32_t		 nl_flags;
-	rtnl_link_stats64	*nl_stats;
+	int		   nl_ifindex;
+	std::string	   nl_ifname;
+	uint8_t		   nl_operstate;
+	uint32_t	   nl_flags;
+	rtnl_link_stats64 *nl_stats;
 };
 
 export inline event::event<newlink_data> evt_newlink;
 
 /* interface destroyed */
 export struct dellink_data {
-	int		 dl_ifindex;
+	int dl_ifindex;
 };
 export inline event::event<dellink_data> evt_dellink;
 
 /* interface address created */
 export struct newaddr_data {
-	int		na_ifindex;
-	int		na_family;
-	int		na_plen;
-	void * nonnull	na_addr;
+	int	      na_ifindex;
+	int	      na_family;
+	int	      na_plen;
+	void *nonnull na_addr;
 };
 export inline event::event<newaddr_data> evt_newaddr;
 
-
 /* interface address removed */
 export struct deladdr_data {
-	int		da_ifindex;
-	int		da_family;
-	int		da_plen;
-	void * nonnull	da_addr;
+	int	      da_ifindex;
+	int	      da_family;
+	int	      da_plen;
+	void *nonnull da_addr;
 };
 export inline event::event<deladdr_data> evt_deladdr;
 

@@ -41,42 +41,42 @@
 
 module;
 
-#include	<cstdlib>
-#include	<array>
-#include	<chrono>
-#include	<concepts>
-#include	<type_traits>
-#include	<span>
-#include	<ranges>
-#include	<algorithm>
-#include	<numeric>
-#include	<utility>
-#include	<print>
+#include <algorithm>
+#include <array>
+#include <chrono>
+#include <concepts>
+#include <cstdlib>
+#include <numeric>
+#include <print>
+#include <ranges>
+#include <span>
+#include <type_traits>
+#include <utility>
 
 export module netd.rate;
 
 export namespace netd {
 
 template<typename T, std::size_t nvalues>
-requires std::is_arithmetic_v<T>
+	requires std::is_arithmetic_v<T>
 struct rate {
 	using time_point = std::chrono::time_point<std::chrono::steady_clock>;
 
 	struct sample {
-		T		value;
-		time_point	when;
+		T	   value;
+		time_point when;
 	};
 
-	auto update(T value) {
-		std::ranges::copy(std::span(_history).subspan(1),
-				  &_history[0]);
+	auto update(T value)
+	{
+		std::ranges::copy(std::span(_history).subspan(1), &_history[0]);
 
 		_history[nvalues - 1] =
-			sample{value,
-			       std::chrono::steady_clock::now()};
+			sample{value, std::chrono::steady_clock::now()};
 	}
 
-	auto get() -> T {
+	auto get() -> T
+	{
 		using namespace std::ranges;
 		using namespace std::ranges::views;
 		using namespace std::chrono;
@@ -84,23 +84,22 @@ struct rate {
 		// Only consider valid samples in the rate.
 
 		auto valid_samples =
-			_history
-			| filter([&] (auto const &sample) {
+			_history | filter([&](auto const &sample) {
 				if (sample.when.time_since_epoch().count())
 					return true;
 
 				return false;
 			});
 
-		auto nsamples = std::distance(begin(valid_samples),
-					      end(valid_samples));
+		auto nsamples =
+			std::distance(begin(valid_samples), end(valid_samples));
 
 		if (nsamples < 2)
 			return T(0);
 
 		auto &first = *begin(valid_samples);
 		auto &last = *rbegin(valid_samples);
-		auto diff = last.value - first.value;
+		auto  diff = last.value - first.value;
 
 		if (diff == T(0))
 			return T(0);
@@ -115,7 +114,7 @@ struct rate {
 	}
 
 private:
-	std::array<sample, nvalues>	_history = {};
+	std::array<sample, nvalues> _history = {};
 };
 
-} // export namespace netd
+} // namespace netd

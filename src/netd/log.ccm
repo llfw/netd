@@ -26,15 +26,15 @@ module;
  * message logging (syslog and stderr).
  */
 
-#include	<string>
-#include	<format>
-#include	<chrono>
-#include	<print>
-#include	<cassert>
+#include <cassert>
+#include <chrono>
+#include <format>
+#include <print>
+#include <string>
 
-#include	<syslog.h>
+#include <syslog.h>
 
-#include	"defs.hh"
+#include "defs.hh"
 
 export module log;
 
@@ -51,9 +51,9 @@ enum class severity {
 };
 
 // log destinations
-export constexpr auto syslog	= 0x1u;
-export constexpr auto console	= 0x2u;
-export constexpr auto destmask	= 0x3u;
+export constexpr auto syslog = 0x1u;
+export constexpr auto console = 0x2u;
+export constexpr auto destmask = 0x3u;
 
 // default destination
 export constexpr auto defaultdest = console;
@@ -63,41 +63,41 @@ unsigned logdest = defaultdest;
 
 // define names and syslog-equivalents for each of our log levels
 struct loglevel {
-	std::string_view	ll_name;
-	int			ll_syslog;
+	std::string_view ll_name;
+	int		 ll_syslog;
 };
 
 loglevel loglevels[] = {
-	{ .ll_name = "debug",   .ll_syslog = LOG_DEBUG },
-	{ .ll_name = "info",    .ll_syslog = LOG_INFO },
-	{ .ll_name = "warning", .ll_syslog = LOG_WARNING },
-	{ .ll_name = "error",   .ll_syslog = LOG_ERR },
-	{ .ll_name = "fatal",   .ll_syslog = LOG_CRIT },
+	{.ll_name = "debug",   .ll_syslog = LOG_DEBUG  },
+	{.ll_name = "info",    .ll_syslog = LOG_INFO	 },
+	{.ll_name = "warning", .ll_syslog = LOG_WARNING},
+	{.ll_name = "error",   .ll_syslog = LOG_ERR	 },
+	{.ll_name = "fatal",   .ll_syslog = LOG_CRIT	  },
 };
 
 // log a message to the console (stderr)
-auto log_console(loglevel level, std::string_view message) -> void {
-time_t		now;
-struct tm	tm;
-char		tmbuf[64] = {};
+auto log_console(loglevel level, std::string_view message) -> void
+{
+	time_t	  now;
+	struct tm tm;
+	char	  tmbuf[64] = {};
 
 	std::time(&now);
 	localtime_r(&now, &tm);
 	strftime(tmbuf, sizeof(tmbuf), "%Y-%m-%d %H:%M:%S %z", &tm);
 
-	std::print(stderr, "{} [{}] {}\n",
-		   tmbuf,
-		   level.ll_name,
-		   message);
+	std::print(stderr, "{} [{}] {}\n", tmbuf, level.ll_name, message);
 }
 
 // log a message to syslog
-auto log_syslog(loglevel  level, std::string_view message) -> void {
+auto log_syslog(loglevel level, std::string_view message) -> void
+{
 	::syslog(level.ll_syslog, "%s", std::string(message).c_str());
 }
 
 // log a message based on the current destination settings
-auto log_message(severity sev, std::string_view message) -> void {
+auto log_message(severity sev, std::string_view message) -> void
+{
 	auto &level = loglevels[static_cast<int>(sev)];
 
 	if (logdest & syslog)
@@ -110,10 +110,10 @@ auto log_message(severity sev, std::string_view message) -> void {
 template<severity sev>
 struct sev_log {
 	template<typename... Args>
-	auto operator()(std::format_string<Args...> fmt,
-			Args&&... args) const -> void {
-		auto msg = std::format(fmt,
-				       std::forward<Args>(args)...);
+	auto operator()(std::format_string<Args...> fmt, Args &&...args) const
+		-> void
+	{
+		auto msg = std::format(fmt, std::forward<Args>(args)...);
 		log_message(sev, msg);
 	}
 };
@@ -126,11 +126,13 @@ export constexpr auto info = sev_log<severity::info>();
 export constexpr auto debug = sev_log<severity::debug>();
 
 /* get or set the log destination */
-auto getdest(void) -> unsigned {
+auto getdest(void) -> unsigned
+{
 	return logdest;
 }
 
-auto setdest(unsigned newdest) -> void {
+auto setdest(unsigned newdest) -> void
+{
 	assert((newdest & ~destmask) == 0u);
 
 	if ((newdest & syslog) && !(logdest & syslog))

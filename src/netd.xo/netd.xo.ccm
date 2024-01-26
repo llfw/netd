@@ -26,11 +26,11 @@
 
 module;
 
-#include	<tuple>
-#include	<string>
+#include <string>
+#include <tuple>
 
 extern "C" { // TODO: file upstream bug
-#include	<libxo/xo.h>
+#include <libxo/xo.h>
 }
 
 export module netd.xo;
@@ -41,7 +41,8 @@ namespace netd::xo {
  * xo calls xo_finish() when it's destroyed.
  */
 export struct xo {
-	~xo() {
+	~xo()
+	{
 		xo_finish();
 	}
 };
@@ -51,19 +52,20 @@ export struct xo {
  * it's destroyed.
  */
 export struct container {
-	container(std::string name)
-	: _name(std::move(name)) {
+	container(std::string name) : _name(std::move(name))
+	{
 		xo_open_container(_name.c_str());
 	}
 
-	~container() {
+	~container()
+	{
 		xo_close_container(_name.c_str());
 	}
 
 	container(container const &) = delete;
 	container(container &&) = delete;
-	auto operator=(container const &) -> container& = delete;
-	auto operator=(container &&) -> container& = delete;
+	auto operator=(container const &) -> container & = delete;
+	auto operator=(container &&) -> container & = delete;
 
 private:
 	std::string _name;
@@ -74,19 +76,20 @@ private:
  * destroyed.
  */
 export struct instance {
-	instance(std::string name)
-	: _name(std::move(name)) {
+	instance(std::string name) : _name(std::move(name))
+	{
 		xo_open_instance(_name.c_str());
 	}
 
-	~instance() {
+	~instance()
+	{
 		xo_close_instance(_name.c_str());
 	}
 
 	instance(instance const &) = delete;
 	instance(instance &&) = delete;
-	auto operator=(instance const &) -> instance& = delete;
-	auto operator=(instance &&) -> instance& = delete;
+	auto operator=(instance const &) -> instance & = delete;
+	auto operator=(instance &&) -> instance & = delete;
 
 private:
 	std::string _name;
@@ -102,12 +105,12 @@ private:
  */
 
 // remove the first element of a tuple
-template <typename T, typename... Rest>
+template<typename T, typename... Rest>
 auto drop1(std::tuple<T, Rest...> const &tuple)
 {
-    return std::apply([](auto &&, auto const &... args) {
-	    return std::tie(args...);
-    }, tuple);
+	return std::apply(
+		[](auto &&, auto const &...args) { return std::tie(args...); },
+		tuple);
 }
 
 /*
@@ -120,59 +123,58 @@ auto drop1(std::tuple<T, Rest...> const &tuple)
  */
 
 template<typename... Cs>
-void _emit(std::string_view format,
-	  std::tuple<>,
-	  Cs&&... converted) {
-	xo_emit(std::string(format).c_str(),
-		std::forward<Cs>(converted)...);
+void _emit(std::string_view format, std::tuple<>, Cs &&...converted)
+{
+	xo_emit(std::string(format).c_str(), std::forward<Cs>(converted)...);
 }
 
 template<typename T, typename... Us, typename... Cs>
-requires std::same_as<std::string_view, std::remove_cvref_t<T>>
-void _emit(std::string_view, std::tuple<T, Us...> const &, Cs&&...);
+	requires std::same_as<std::string_view, std::remove_cvref_t<T>>
+void _emit(std::string_view, std::tuple<T, Us...> const &, Cs &&...);
 
 template<typename T, typename... Us, typename... Cs>
-requires std::same_as<std::string, std::remove_cvref_t<T>>
-void _emit(std::string_view, std::tuple<T, Us...> const &, Cs&&...);
+	requires std::same_as<std::string, std::remove_cvref_t<T>>
+void _emit(std::string_view, std::tuple<T, Us...> const &, Cs &&...);
 
 template<typename T, typename... Us, typename... Cs>
-requires (std::is_integral_v<std::remove_cvref_t<T>>
-	  || std::is_pointer_v<std::remove_cvref_t<T>>)
-void _emit(std::string_view, std::tuple<T, Us...> const &, Cs&&...);
+	requires(std::is_integral_v<std::remove_cvref_t<T>>
+		 || std::is_pointer_v<std::remove_cvref_t<T>>)
+void _emit(std::string_view, std::tuple<T, Us...> const &, Cs &&...);
 
 template<typename T, typename... Us, typename... Cs>
-requires std::same_as<std::string, std::remove_cvref_t<T>>
-void _emit(std::string_view format,
-	  std::tuple<T, Us...> const &unconverted,
-	  Cs&&... done)
+	requires std::same_as<std::string, std::remove_cvref_t<T>>
+void _emit(std::string_view	       format,
+	   std::tuple<T, Us...> const &unconverted,
+	   Cs &&...done)
 {
 	_emit(format, drop1(unconverted), std::forward<Cs>(done)...,
-	     std::get<0>(unconverted).c_str());
+	      std::get<0>(unconverted).c_str());
 }
 
 template<typename T, typename... Us, typename... Cs>
-requires std::same_as<std::string_view, std::remove_cvref_t<T>>
-void _emit(std::string_view format,
-	  std::tuple<T, Us...> const &unconverted,
-	  Cs&&... done)
+	requires std::same_as<std::string_view, std::remove_cvref_t<T>>
+void _emit(std::string_view	       format,
+	   std::tuple<T, Us...> const &unconverted,
+	   Cs &&...done)
 {
 	_emit(format, drop1(unconverted), std::forward<Cs>(done)...,
-	     std::string(std::get<0>(unconverted)).c_str());
+	      std::string(std::get<0>(unconverted)).c_str());
 }
 
 template<typename T, typename... Us, typename... Cs>
-requires (std::is_integral_v<std::remove_cvref_t<T>>
-	  || std::is_pointer_v<std::remove_cvref_t<T>>)
-void _emit(std::string_view format,
-	  std::tuple<T, Us...> const &unconverted,
-	  Cs&&... done)
+	requires(std::is_integral_v<std::remove_cvref_t<T>>
+		 || std::is_pointer_v<std::remove_cvref_t<T>>)
+void _emit(std::string_view	       format,
+	   std::tuple<T, Us...> const &unconverted,
+	   Cs &&...done)
 {
 	_emit(format, drop1(unconverted), std::forward<Cs>(done)...,
-	     std::get<0>(unconverted));
+	      std::get<0>(unconverted));
 }
 
 export template<typename... Args>
-void emit(std::string_view format, Args&&... args) {
+void emit(std::string_view format, Args &&...args)
+{
 	_emit(format, std::tuple<Args...>(std::forward<Args>(args)...));
 }
 

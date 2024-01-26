@@ -22,8 +22,8 @@
 
 module;
 
-#include	<expected>
-#include	<system_error>
+#include <expected>
+#include <system_error>
 
 export module ctl;
 

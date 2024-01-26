@@ -66,9 +66,10 @@ add_custom_target(lint
 	WORKING_DIRECTORY ${lint_dir}
 )
 
-# Run the *_prepare target always before the analysis
 add_dependencies(lint lint_prepare)
 
-include_directories(include)
+file(GLOB_RECURSE ALL_SOURCES *.cc *.ccm *.hh)
+add_custom_target(format COMMAND clang-format -i ${ALL_SOURCES})
 
+include_directories(include)
 add_subdirectory(src)

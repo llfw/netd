@@ -20,21 +20,21 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef	NETD_DEFS_H_INCLUDED
-#define	NETD_DEFS_H_INCLUDED
-
+#ifndef NETD_DEFS_H_INCLUDED
+#define NETD_DEFS_H_INCLUDED
 
 #ifdef __clang__
-# define printf_format(fmt, args) __attribute__((format(printf, fmt, args)))
-# define nonnull _Nonnull
-# define nullable _Nullable
-# define newmem __attribute__((__malloc__))
-# pragma clang diagnostic ignored "-Wnullability-extension"
+#	define printf_format(fmt, args)                                       \
+		__attribute__((format(printf, fmt, args)))
+#	define nonnull	 _Nonnull
+#	define nullable _Nullable
+#	define newmem	 __attribute__((__malloc__))
+#	pragma clang diagnostic ignored "-Wnullability-extension"
 #else
-# define printf_format(fmt, args)
-# define notnull
-# define nullable
-# define newmem
+#	define printf_format(fmt, args)
+#	define notnull
+#	define nullable
+#	define newmem
 #endif
 
-#endif	/* !NETD_DEFS_H_INCLUDED */
+#endif /* !NETD_DEFS_H_INCLUDED */

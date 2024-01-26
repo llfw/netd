@@ -26,15 +26,15 @@ module;
  * the persistent database.
  */
 
-#include	<sys/types.h>
-#include	<sys/socket.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 
-#include	<netinet/in.h>
-#include	<netinet/if_ether.h>
+#include <netinet/if_ether.h>
+#include <netinet/in.h>
 
-#include	<string>
-#include	<expected>
-#include	<system_error>
+#include <expected>
+#include <string>
+#include <system_error>
 
 import netd.uuid;
 
@@ -49,10 +49,10 @@ export namespace netd::db {
  */
 
 struct pinterface {
-	uuid		pi_uuid;
-	std::string	pi_name;
-	std::string	pi_descr;
-	ether_addr	pi_ether;
+	uuid	    pi_uuid;
+	std::string pi_name;
+	std::string pi_descr;
+	ether_addr  pi_ether;
 };
 
 // load the stored database from disk, replacing any existing configuration.
@@ -62,4 +62,4 @@ auto load(void) -> std::expected<void, std::error_code>;
 // any modification.
 auto save(void) -> std::expected<void, std::error_code>;
 
-} // export namespace netd::db
+} // namespace netd::db

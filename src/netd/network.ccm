@@ -22,21 +22,22 @@
 
 module;
 
-#include	<string>
-#include	<map>
-#include	<expected>
-#include	<system_error>
-#include	<cstdint>
+#include <cstdint>
+#include <expected>
+#include <map>
+#include <string>
+#include <system_error>
 
-#include	"defs.hh"
-#include	"generator.hh"
+#include "defs.hh"
+#include "generator.hh"
 
 import netd.uuid;
+import netd.event;
 
 export module network;
 
 namespace netd::network {
-	struct network;	/* private */
+struct network; /* private */
 }
 
 export namespace netd::network {
@@ -47,9 +48,9 @@ export namespace netd::network {
  * the fields of this struct should be considered private.
  */
 struct handle {
-	network			*nh_ptr;
-	uuid			 nh_uuid;
-	mutable std::uint64_t	 nh_gen;
+	network		     *nh_ptr;
+	uuid		      nh_uuid;
+	mutable std::uint64_t nh_gen;
 };
 
 /*
@@ -57,9 +58,20 @@ struct handle {
  */
 
 struct netinfo {
-	uuid			id;
-	std::string_view	name;
+	uuid		 id;
+	std::string_view name;
 };
+
+/*
+ * network events.
+ */
+
+// a new network was created
+inline event::event<netinfo> net_created;
+// an existing network is about to be destroyed
+inline event::event<netinfo> net_removed;
+// an existing network was changed
+inline event::event<netinfo> net_changes;
 
 // TODO: remove std::expected here as this should never fail
 auto info(handle const &) -> std::expected<netinfo, std::error_code>;
@@ -78,4 +90,4 @@ auto findall() -> std::generator<handle>;
 /* delete a network.  all configuration will be removed. */
 auto remove(handle const &) -> void;
 
-} // export namespace netd::network
+} // namespace netd::network

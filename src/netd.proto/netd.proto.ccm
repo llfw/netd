@@ -26,9 +26,9 @@ module;
  * the client-server protocol.
  */
 
-#include	<string>
+#include <string>
 
-#include	<paths.h>
+#include <paths.h>
 
 export module netd.proto;
 
@@ -57,7 +57,7 @@ constexpr auto cn_maxnetnam = 16u;
  */
 
 constexpr std::string_view
-	cp_cmd			= "CMD_NAME",
+	cp_cmd = "CMD_NAME",
 
 	/*
 	 * generic response:
@@ -68,71 +68,62 @@ constexpr std::string_view
 	 * STATUS_INFO may be present for STATUS_SUCCESS if additional
 	 * information is available.
 	 */
-	cp_status		= "STATUS",		/* string */
-	cv_status_success		= "STATUS_SUCCESS",
-	cv_status_error			= "STATUS_ERROR",
-	cp_status_info		= "STATUS_INFO",	/* string, optional */
-	cp_status_syserr	= "STATUS_SYSERR",	/* string */
+	cp_status = "STATUS", /* string */
+	cv_status_success = "STATUS_SUCCESS", cv_status_error = "STATUS_ERROR",
+	cp_status_info = "STATUS_INFO",	    /* string, optional */
+	cp_status_syserr = "STATUS_SYSERR", /* string */
 
 	/*
 	 * error codes
 	 */
-	ce_syserr	= "SYSERR",		/* system error,
-						   see STATUS_SYSERR */
-	ce_proto	= "PROTO",		/* protocol error */
-	ce_netnx	= "NETNX",		/* network does not exist */
-	ce_netexists	= "NETEXISTS",	/* network already exists */
-	ce_netnmln	= "NETNMLN";		/* network name is too long */
+	ce_syserr = "SYSERR",	    /* system error,
+				       see STATUS_SYSERR */
+	ce_proto = "PROTO",	    /* protocol error */
+	ce_netnx = "NETNX",	    /* network does not exist */
+	ce_netexists = "NETEXISTS", /* network already exists */
+	ce_netnmln = "NETNMLN";	    /* network name is too long */
 
-	/*
-	 * interface-related commands.
-	 */
+/*
+ * interface-related commands.
+ */
 
-	/* INTF_LIST - request */
-constexpr std::string_view
-	cc_getifs	= "INTF_LIST",
+/* INTF_LIST - request */
+constexpr std::string_view cc_getifs = "INTF_LIST",
 
-	/* INTF_LIST - response */
-	cp_iface		= "INTFS",		/* nvlist array */
-	cp_iface_name		= "NAME",		/* string */
-	cp_iface_flags		= "FLAGS",		/* string array */
-	cp_iface_admin		= "ADMIN_STATE",	/* number */
-	cp_iface_oper		= "OPER_STATE",		/* number */
-	cp_iface_rxrate		= "RX",			/* number (bits/sec) */
-	cp_iface_txrate		= "TX";			/* number (bits/sec) */
+			   /* INTF_LIST - response */
+	cp_iface = "INTFS",		/* nvlist array */
+	cp_iface_name = "NAME",		/* string */
+	cp_iface_flags = "FLAGS",	/* string array */
+	cp_iface_admin = "ADMIN_STATE", /* number */
+	cp_iface_oper = "OPER_STATE",	/* number */
+	cp_iface_rxrate = "RX",		/* number (bits/sec) */
+	cp_iface_txrate = "TX";		/* number (bits/sec) */
 
 constexpr uint64_t
 	/* interface operational states */
-	cv_iface_oper_unknown		= 0,
-	cv_iface_oper_not_present	= 1,
-	cv_iface_oper_down		= 2,
-	cv_iface_oper_lower_down	= 3,
-	cv_iface_oper_testing		= 4,
-	cv_iface_oper_dormant		= 5,
-	cv_iface_oper_up		= 6,
+	cv_iface_oper_unknown = 0,
+	cv_iface_oper_not_present = 1, cv_iface_oper_down = 2,
+	cv_iface_oper_lower_down = 3, cv_iface_oper_testing = 4,
+	cv_iface_oper_dormant = 5, cv_iface_oper_up = 6,
 	/* interface admin states */
-	cv_iface_admin_unknown		= 0,
-	cv_iface_admin_down		= 1,
-	cv_iface_admin_up		= 2;
+	cv_iface_admin_unknown = 0, cv_iface_admin_down = 1,
+	cv_iface_admin_up = 2;
 
-	/*
-	 * network-related commands.
-	 */
+/*
+ * network-related commands.
+ */
 
 constexpr std::string_view
 	/* NET_LIST - request */
-	cc_getnets		= "NET_LIST",
+	cc_getnets = "NET_LIST",
 
 	/* NET_LIST - response */
-	cp_nets			= "NETS",
-	cp_net_name		= "NAME",
+	cp_nets = "NETS", cp_net_name = "NAME",
 
 	/* NET_CREATE - request */
-	cc_newnet		= "NET_CREATE",
-	cp_newnet_name		= "NET_NAME",
+	cc_newnet = "NET_CREATE", cp_newnet_name = "NET_NAME",
 
 	/* NET_DELETE - request */
-	cc_delnet		= "NET_DELETE",
-	cp_delnet_name		= "NET_NAME";
+	cc_delnet = "NET_DELETE", cp_delnet_name = "NET_NAME";
 
-} // export namespace netd::proto
+} // namespace netd::proto

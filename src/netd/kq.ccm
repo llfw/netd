@@ -27,15 +27,15 @@ module;
  * register handlers for various events.
  */
 
-#include	<sys/types.h>
-#include	<sys/socket.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 
-#include	<system_error>
-#include	<functional>
-#include	<expected>
-#include	<span>
+#include <expected>
+#include <functional>
+#include <span>
+#include <system_error>
 
-#include	"defs.hh"
+#include "defs.hh"
 
 import log;
 import task;
@@ -57,7 +57,7 @@ export auto init(void) -> std::expected<void, std::error_code>;
 export auto run(void) -> std::expected<void, std::error_code>;
 
 /* call handler() at the end of the current event loop */
-using dispatchcb = std::function<void ()>;
+using dispatchcb = std::function<void()>;
 export void dispatch(dispatchcb handler);
 
 /******************************************************************************
@@ -81,10 +81,10 @@ export auto readable(int fd) -> task<void>;
 export auto sleep(std::chrono::nanoseconds) -> task<void>;
 
 export template<typename Rep, typename Period>
-auto sleep(std::chrono::duration<Rep, Period> duration) -> task<void> {
-	co_await sleep(std::chrono::duration_cast<
-				std::chrono::nanoseconds
-			>(duration));
+auto sleep(std::chrono::duration<Rep, Period> duration) -> task<void>
+{
+	co_await sleep(
+		std::chrono::duration_cast<std::chrono::nanoseconds>(duration));
 }
 
 /*
@@ -106,16 +106,15 @@ export auto write(int fd, std::span<std::byte const>)
  * returns the size of the message read, or error.  if the buffer is too small
  * to hold the message, the message is discarded and ENOSPC is returned.
  */
-export [[nodiscard]]
-auto recvmsg(int fd, std::span<std::byte> buf) ->
-	task<std::expected<std::size_t, std::error_code>>;
+export [[nodiscard]] auto recvmsg(int fd, std::span<std::byte> buf)
+	-> task<std::expected<std::size_t, std::error_code>>;
 
 /*
  * accept a connection on the given server socket.  the arguments are as
  * described in accept4(2).
  */
-export [[nodiscard]]
-auto accept4(int server_fd, sockaddr *, socklen_t *, int flags)
+export [[nodiscard]] auto
+accept4(int server_fd, sockaddr *, socklen_t *, int flags)
 	-> task<std::expected<int, std::error_code>>;
 
 } // namespace netd::kq

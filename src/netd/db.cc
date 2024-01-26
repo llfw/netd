@@ -22,8 +22,8 @@
 
 module;
 
-#include	<expected>
-#include	<system_error>
+#include <expected>
+#include <system_error>
 
 import network;
 import netd.nvl;
@@ -33,10 +33,11 @@ module db;
 
 namespace netd::db {
 
-auto save(void) -> std::expected<void, std::error_code> {
+auto save(void) -> std::expected<void, std::error_code>
+{
 	nvl state;
 
-	auto serialise_network = [&] (auto &hdl) {
+	auto serialise_network = [&](auto &hdl) {
 		auto net = info(hdl);
 		if (!net)
 			panic("db::save: network::info: {}",
@@ -47,9 +48,8 @@ auto save(void) -> std::expected<void, std::error_code> {
 		return data;
 	};
 
-	for (auto &&hdl : network::findall())
-		state.append_nvlist_array("networks",
-					  serialise_network(hdl));
+	for (auto &&hdl: network::findall())
+		state.append_nvlist_array("networks", serialise_network(hdl));
 
 	return {};
 }

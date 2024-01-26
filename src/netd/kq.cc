@@ -22,25 +22,25 @@
 
 module;
 
-#include	<sys/types.h>
-#include	<sys/event.h>
-#include	<sys/socket.h>
+#include <sys/types.h>
+#include <sys/event.h>
+#include <sys/socket.h>
 
-#include	<cassert>
-#include	<cerrno>
-#include	<cstdlib>
-#include	<cstring>
-#include	<cstdio>
-#include	<ctime>
-#include	<coroutine>
-#include	<span>
-#include	<unistd.h>
+#include <cassert>
+#include <cerrno>
+#include <coroutine>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <ctime>
+#include <span>
+#include <unistd.h>
 
-#include	<new>
-#include	<vector>
-#include	<expected>
+#include <expected>
+#include <new>
+#include <vector>
 
-#include	"defs.hh"
+#include "defs.hh"
 
 import log;
 import task;
@@ -53,7 +53,7 @@ namespace netd::kq {
 
 /* kq represents a kqueue instance */
 struct kqueue {
-	int			kq_fd = 0;
+	int kq_fd = 0;
 };
 
 /* the global instance */
@@ -64,12 +64,13 @@ struct kqueue kq;
  */
 static std::vector<dispatchcb> jobs;
 
-void
-dispatch(dispatchcb handler) {
+void dispatch(dispatchcb handler)
+{
 	jobs.emplace_back(std::move(handler));
 }
 
-auto runjobs(void) -> void {
+auto runjobs(void) -> void
+{
 	/* the job list can be appended to while we're iterating */
 	for (std::size_t i = 0; i < jobs.size(); ++i)
 		jobs[i]();
@@ -77,7 +78,8 @@ auto runjobs(void) -> void {
 	jobs.clear();
 }
 
-auto init(void) -> std::expected<void, std::error_code> {
+auto init(void) -> std::expected<void, std::error_code>
+{
 	time(&current_time);
 
 	if ((kq.kq_fd = ::kqueuex(KQUEUE_CLOEXEC)) == -1)
@@ -94,14 +96,16 @@ struct wait_kevent {
 
 	explicit wait_kevent(struct kevent &ev_) : ev(ev_) {}
 
-	auto await_ready() -> bool {
+	auto await_ready() -> bool
+	{
 		log::debug("wait_kevent: await_ready() this={}",
 			   static_cast<void *>(this));
 		return false;
 	}
 
-	template <typename P>
-	auto await_suspend(std::coroutine_handle<P> coro) -> bool {
+	template<typename P>
+	auto await_suspend(std::coroutine_handle<P> coro) -> bool
+	{
 		/*
 		 * store the address of the kevent in ext[2].  this signals the
 		 * kq dispatcher that it should copy the kevent there, and then
@@ -119,32 +123,34 @@ struct wait_kevent {
 		return true;
 	}
 
-	void await_resume() {
+	void await_resume()
+	{
 		log::debug("wait_kevent: await_resume() this={}",
 			   static_cast<void *>(this));
 	}
 };
 
-auto operator co_await (struct kevent &ev) {
+auto operator co_await(struct kevent &ev)
+{
 	return wait_kevent(ev);
 }
 
-auto run(void) -> std::expected<void, std::error_code> {
-struct kevent	 ev;
-int		 n;
+auto run(void) -> std::expected<void, std::error_code>
+{
+	struct kevent ev;
+	int	      n;
 
 	auto handle = [](struct kevent &ev) {
 		dispatch([=] {
 			log::debug("kq_dispatch_event: resuming");
 
-			auto evaddr = reinterpret_cast<
-						struct kevent *
-					>(ev.ext[2]);
+			auto evaddr =
+				reinterpret_cast<struct kevent *>(ev.ext[2]);
 			std::memcpy(evaddr, &ev, sizeof(ev));
 
 			auto coroaddr = reinterpret_cast<void *>(ev.ext[3]);
-			auto coro = std::coroutine_handle<>::from_address(
-								coroaddr);
+			auto coro =
+				std::coroutine_handle<>::from_address(coroaddr);
 			coro.resume();
 		});
 	};
@@ -183,7 +189,8 @@ int		 n;
  *
  */
 
-auto run_task(jtask<void> &&tsk) -> void {
+auto run_task(jtask<void> &&tsk) -> void
+{
 	auto tsk_ = new (std::nothrow) jtask(std::move(tsk));
 	log::debug("run_task: start, task={}", static_cast<void *>(tsk_));
 
@@ -202,8 +209,9 @@ auto run_task(jtask<void> &&tsk) -> void {
 	});
 }
 
-auto wait_readable(int fd) -> task<void> {
-	struct kevent ev{};
+auto wait_readable(int fd) -> task<void>
+{
+	struct kevent ev {};
 
 	ev.ident = (uintptr_t)fd;
 	ev.filter = EVFILT_READ;
@@ -212,8 +220,9 @@ auto wait_readable(int fd) -> task<void> {
 	co_await ev;
 }
 
-auto wait_writable(int fd) -> task<void> {
-	struct kevent ev{};
+auto wait_writable(int fd) -> task<void>
+{
+	struct kevent ev {};
 
 	ev.ident = (uintptr_t)fd;
 	ev.filter = EVFILT_WRITE;
@@ -222,8 +231,9 @@ auto wait_writable(int fd) -> task<void> {
 	co_await ev;
 }
 
-auto sleep(std::chrono::nanoseconds duration) -> task<void> {
-	struct kevent ev{};
+auto sleep(std::chrono::nanoseconds duration) -> task<void>
+{
+	struct kevent ev {};
 
 	ev.ident = reinterpret_cast<uintptr_t>(&ev);
 	ev.filter = EVFILT_TIMER;
@@ -237,14 +247,14 @@ auto sleep(std::chrono::nanoseconds duration) -> task<void> {
 auto sleep_until(std::chrono::time_point<std::chrono::system_clock> when)
 	-> task<void>
 {
-	struct kevent ev{};
+	struct kevent ev {};
 
 	ev.ident = reinterpret_cast<uintptr_t>(&ev);
 	ev.filter = EVFILT_TIMER;
 	ev.fflags = NOTE_ABSTIME | NOTE_NSECONDS;
-	ev.data = std::chrono::duration_cast<
-			std::chrono::nanoseconds
-		>(when.time_since_epoch()).count();
+	ev.data = std::chrono::duration_cast<std::chrono::nanoseconds>(
+			  when.time_since_epoch())
+			  .count();
 	ev.flags = EV_ADD | EV_ENABLE | EV_ONESHOT;
 
 	co_await ev;
@@ -298,7 +308,7 @@ auto recvmsg(int fd, std::span<std::byte> buf)
 	auto bufleft = buf;
 
 	// try a single read from the fd.
-	auto recv1 = [&] (auto &msg) {
+	auto recv1 = [&](auto &msg) {
 		auto iov = iovec{bufleft.data(), bufleft.size()};
 
 		msg.msg_iov = &iov;
@@ -306,8 +316,8 @@ auto recvmsg(int fd, std::span<std::byte> buf)
 
 		// wait for some data to arrive
 		auto n = ::recvmsg(fd, &msg, 0);
-		log::debug("kq::recvmsg: read {} errno={}",
-		     n, errno ? "-" : std::strerror(errno));
+		log::debug("kq::recvmsg: read {} errno={}", n,
+			   errno ? "-" : std::strerror(errno));
 		return n;
 	};
 

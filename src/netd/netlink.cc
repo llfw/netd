@@ -22,25 +22,25 @@
 
 module;
 
-#include	<sys/types.h>
-#include	<sys/socket.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 
-#include	<netlink/netlink.h>
-#include	<netlink/netlink_route.h>
+#include <netlink/netlink.h>
+#include <netlink/netlink_route.h>
 
-#include	<netinet/in.h>
-#include	<arpa/inet.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 
-#include	<cassert>
-#include	<cerrno>
-#include	<cstdlib>
-#include	<cstring>
-#include	<cstdio>
-#include	<map>
-#include	<functional>
-#include	<expected>
-#include	<coroutine>
-#include	<unistd.h>
+#include <cassert>
+#include <cerrno>
+#include <coroutine>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <expected>
+#include <functional>
+#include <map>
+#include <unistd.h>
 
 import log;
 import kq;
@@ -55,25 +55,25 @@ namespace netd::netlink {
 /* the netlink reader job */
 [[nodiscard]] auto reader(socket) -> jtask<void>;
 
-void	hdl_rtm_newlink(struct nlmsghdr *nonnull);
-void	hdl_rtm_dellink(struct nlmsghdr *nonnull);
-void	hdl_rtm_newaddr(struct nlmsghdr *nonnull);
-void	hdl_rtm_deladdr(struct nlmsghdr *nonnull);
+void hdl_rtm_newlink(struct nlmsghdr *nonnull);
+void hdl_rtm_dellink(struct nlmsghdr *nonnull);
+void hdl_rtm_newaddr(struct nlmsghdr *nonnull);
+void hdl_rtm_deladdr(struct nlmsghdr *nonnull);
 
-std::map<int, std::function<void (nlmsghdr *nonnull)>> handlers = {
-	{ RTM_NEWLINK, hdl_rtm_newlink },
-	{ RTM_DELLINK, hdl_rtm_dellink },
-	{ RTM_NEWADDR, hdl_rtm_newaddr },
-	{ RTM_DELADDR, hdl_rtm_deladdr },
+std::map<int, std::function<void(nlmsghdr *nonnull)>> handlers = {
+	{RTM_NEWLINK, hdl_rtm_newlink},
+	{RTM_DELLINK, hdl_rtm_dellink},
+	{RTM_NEWADDR, hdl_rtm_newaddr},
+	{RTM_DELADDR, hdl_rtm_deladdr},
 };
 
 auto fetch_interfaces(void) -> task<std::expected<void, std::error_code>>;
 auto fetch_addresses(void) -> task<std::expected<void, std::error_code>>;
 
-auto socket::create(int flags)
-	-> std::expected<socket, std::error_code> {
-int		 optval;
-socklen_t	 optlen;
+auto socket::create(int flags) -> std::expected<socket, std::error_code>
+{
+	int	  optval;
+	socklen_t optlen;
 
 	socket sock;
 
@@ -83,14 +83,15 @@ socklen_t	 optlen;
 
 	optval = 1;
 	optlen = sizeof(optval);
-	if (setsockopt(sock._fd, SOL_NETLINK, NETLINK_MSG_INFO,
-		       &optval, optlen) != 0)
+	if (setsockopt(sock._fd, SOL_NETLINK, NETLINK_MSG_INFO, &optval, optlen)
+	    != 0)
 		return std::unexpected(error::from_errno());
 
 	return sock;
 }
 
-auto init(void) -> task<std::expected<void, std::error_code>> {
+auto init(void) -> task<std::expected<void, std::error_code>>
+{
 	auto nls = socket::create(SOCK_NONBLOCK | SOCK_CLOEXEC);
 	if (!nls) {
 		log::fatal("netlink::init: socket_create: {}",
@@ -99,16 +100,12 @@ auto init(void) -> task<std::expected<void, std::error_code>> {
 	}
 
 	auto groups = std::array{
-		RTNLGRP_LINK,
-		RTNLGRP_NEIGH,
-		RTNLGRP_NEXTHOP,
-		RTNLGRP_IPV4_IFADDR,
-		RTNLGRP_IPV4_ROUTE,
-		RTNLGRP_IPV6_IFADDR,
+		RTNLGRP_LINK,	     RTNLGRP_NEIGH,	 RTNLGRP_NEXTHOP,
+		RTNLGRP_IPV4_IFADDR, RTNLGRP_IPV4_ROUTE, RTNLGRP_IPV6_IFADDR,
 		RTNLGRP_IPV6_ROUTE,
 	};
 
-	for (auto group : groups) {
+	for (auto group: groups) {
 		if (auto ret = co_await nls->join(group); !ret) {
 			log::fatal("netlink init: failed to join {}: {}",
 				   static_cast<int>(group),
@@ -133,19 +130,20 @@ auto init(void) -> task<std::expected<void, std::error_code>> {
 	co_return {};
 }
 
-auto socket::join(int group) -> task<std::expected<void, std::error_code>> {
+auto socket::join(int group) -> task<std::expected<void, std::error_code>>
+{
 	auto optlen = socklen_t(sizeof(group));
 
-	if (setsockopt(_fd,
-		       SOL_NETLINK, NETLINK_ADD_MEMBERSHIP,
-		       &group, optlen) == -1) {
+	if (setsockopt(_fd, SOL_NETLINK, NETLINK_ADD_MEMBERSHIP, &group, optlen)
+	    == -1) {
 		co_return std::unexpected(error::from_errno());
 	}
 
 	co_return {};
 }
 
-auto socket::read(void) -> task<std::expected<nlmsghdr *, std::error_code>> {
+auto socket::read(void) -> task<std::expected<nlmsghdr *, std::error_code>>
+{
 	log::debug("netlink read: starting");
 
 	// how much to read each go
@@ -154,8 +152,7 @@ auto socket::read(void) -> task<std::expected<nlmsghdr *, std::error_code>> {
 	// if we already read a message, discard it from the buffer
 	if (_msgsize) {
 		_buffer.erase(_buffer.begin(),
-			      _buffer.begin() +
-				static_cast<ssize_t>(_msgsize));
+			      _buffer.begin() + static_cast<ssize_t>(_msgsize));
 		_msgsize = 0;
 	}
 
@@ -170,9 +167,8 @@ auto socket::read(void) -> task<std::expected<nlmsghdr *, std::error_code>> {
 			_buffer.resize(_buffer.size() + blksz);
 
 		// read some data and see if it turns into a valid message
-		auto r = co_await kq::read(_fd,
-					   std::span(_buffer)
-						.subspan(_pending));
+		auto r = co_await kq::read(
+			_fd, std::span(_buffer).subspan(_pending));
 
 		if (!r)
 			co_return std::unexpected(error::from_errno());
@@ -191,8 +187,7 @@ auto socket::read(void) -> task<std::expected<nlmsghdr *, std::error_code>> {
 	co_return hdr;
 }
 
-auto socket::send(nlmsghdr *nlmsg)
-	-> task<std::expected<void, std::error_code>>
+auto socket::send(nlmsghdr *nlmsg) -> task<std::expected<void, std::error_code>>
 {
 	log::debug("netlink send: send fd={}", _fd);
 
@@ -212,7 +207,8 @@ auto socket::send(nlmsghdr *nlmsg)
  * reader: read and process new data from the netlink socket.
  */
 
-auto reader(socket nls) -> jtask<void> {
+auto reader(socket nls) -> jtask<void>
+{
 	for (;;) {
 		auto msg = co_await nls.read();
 		if (!msg)
@@ -230,8 +226,9 @@ auto reader(socket nls) -> jtask<void> {
 /*
  * ask the kernel to report all existing network interfaces.
  */
-auto fetch_interfaces(void) -> task<std::expected<void, std::error_code>> {
-nlmsghdr	 hdr;
+auto fetch_interfaces(void) -> task<std::expected<void, std::error_code>>
+{
+	nlmsghdr hdr;
 
 	auto nls = socket::create(SOCK_CLOEXEC | SOCK_NONBLOCK);
 	if (!nls)
@@ -265,8 +262,9 @@ nlmsghdr	 hdr;
 /*
  * ask the kernel to report all existing addresses.
  */
-auto fetch_addresses(void) -> task<std::expected<void, std::error_code>> {
-nlmsghdr	 hdr;
+auto fetch_addresses(void) -> task<std::expected<void, std::error_code>>
+{
+	nlmsghdr hdr;
 
 	auto nls = socket::create(SOCK_CLOEXEC | SOCK_NONBLOCK);
 	if (!nls)
@@ -297,20 +295,20 @@ nlmsghdr	 hdr;
 }
 
 /* handle RTM_NEWLINK */
-void
-hdl_rtm_newlink(struct nlmsghdr *nlmsg) {
-ifinfomsg		*ifinfo = static_cast<ifinfomsg *>(NLMSG_DATA(nlmsg));
-rtattr			*attrmsg = NULL;
-size_t			 attrlen;
-newlink_data		 msg;
-rtnl_link_stats64	 stats;
+void hdl_rtm_newlink(struct nlmsghdr *nlmsg)
+{
+	ifinfomsg	 *ifinfo = static_cast<ifinfomsg *>(NLMSG_DATA(nlmsg));
+	rtattr		 *attrmsg = NULL;
+	size_t		  attrlen;
+	newlink_data	  msg;
+	rtnl_link_stats64 stats;
 
 	memset(&msg, 0, sizeof(msg));
 	memset(&stats, 0, sizeof(stats));
 
 	for (attrmsg = IFLA_RTA(ifinfo), attrlen = IFLA_PAYLOAD(nlmsg);
-	     RTA_OK(attrmsg, (int) attrlen);
-		attrmsg = RTA_NEXT(attrmsg, attrlen)) {
+	     RTA_OK(attrmsg, (int)attrlen);
+	     attrmsg = RTA_NEXT(attrmsg, attrlen)) {
 
 		switch (attrmsg->rta_type) {
 		case IFLA_IFNAME:
@@ -337,11 +335,8 @@ rtnl_link_stats64	 stats;
 
 	log::debug("RTM_NEWLINK: {}<{}> nlmsg_flags={:#x} ifi_flags={:#x}"
 		   "ifi_change={:#x}",
-		   msg.nl_ifname,
-		   ifinfo->ifi_index,
-		   nlmsg->nlmsg_flags,
-		   ifinfo->ifi_flags,
-		   ifinfo->ifi_change);
+		   msg.nl_ifname, ifinfo->ifi_index, nlmsg->nlmsg_flags,
+		   ifinfo->ifi_flags, ifinfo->ifi_change);
 
 	msg.nl_ifindex = ifinfo->ifi_index;
 	msg.nl_flags = ifinfo->ifi_flags;
@@ -349,22 +344,22 @@ rtnl_link_stats64	 stats;
 }
 
 /* handle RTM_DELLINK */
-void
-hdl_rtm_dellink(nlmsghdr *nlmsg) {
-ifinfomsg	*ifinfo = static_cast<ifinfomsg *>(NLMSG_DATA(nlmsg));
-dellink_data	 msg;
+void hdl_rtm_dellink(nlmsghdr *nlmsg)
+{
+	ifinfomsg   *ifinfo = static_cast<ifinfomsg *>(NLMSG_DATA(nlmsg));
+	dellink_data msg;
 
 	msg.dl_ifindex = ifinfo->ifi_index;
 	evt_dellink.dispatch(msg);
 }
 
 /* handle RTM_NEWADDR */
-void
-hdl_rtm_newaddr(nlmsghdr *nlmsg) {
-ifaddrmsg	*ifamsg;
-rtattr		*attrmsg;
-size_t		 attrlen;
-newaddr_data	 msg;
+void hdl_rtm_newaddr(nlmsghdr *nlmsg)
+{
+	ifaddrmsg   *ifamsg;
+	rtattr	    *attrmsg;
+	size_t	     attrlen;
+	newaddr_data msg;
 
 	log::debug("RTM_NEWADDR");
 
@@ -391,12 +386,12 @@ newaddr_data	 msg;
 }
 
 /* handle RTM_DELADDR */
-void
-hdl_rtm_deladdr(nlmsghdr *nlmsg) {
-ifaddrmsg	*ifamsg;
-rtattr		*attrmsg;
-size_t		 attrlen;
-deladdr_data	 msg;
+void hdl_rtm_deladdr(nlmsghdr *nlmsg)
+{
+	ifaddrmsg   *ifamsg;
+	rtattr	    *attrmsg;
+	size_t	     attrlen;
+	deladdr_data msg;
 
 	log::debug("RTM_DELADDR");
 

@@ -20,36 +20,36 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include	<sys/types.h>
-#include	<sys/socket.h>
-#include	<sys/un.h>
-#include	<sys/nv.h>
+#include <sys/types.h>
+#include <sys/nv.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 
 extern "C" { // TODO: file upstream bug
-#include	<libxo/xo.h>
+#include <libxo/xo.h>
 }
 
-#include	<ranges>
-#include	<expected>
-#include	<algorithm>
-#include	<iostream>
-#include	<print>
-#include	<format>
-#include	<functional>
-#include	<set>
-#include	<map>
-#include	<span>
-#include	<vector>
+#include <algorithm>
+#include <expected>
+#include <format>
+#include <functional>
+#include <iostream>
+#include <map>
+#include <print>
+#include <ranges>
+#include <set>
+#include <span>
+#include <vector>
 
-#include	<cassert>
-#include	<cerrno>
-#include	<cstdio>
-#include	<cstdlib>
-#include	<cstring>
-#include	<cinttypes>
-#include	<unistd.h>
+#include <cassert>
+#include <cerrno>
+#include <cinttypes>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <unistd.h>
 
-#include	"defs.hh"
+#include "defs.hh"
 
 import netd.nvl;
 import netd.xo;
@@ -59,29 +59,31 @@ using namespace std::literals;
 
 namespace netd {
 
-int	netd_connect(void);
+int netd_connect(void);
 
-using cmdhandler = std::function<int (int server,
-				      std::span<std::string const> args)>;
+using cmdhandler =
+	std::function<int(int server, std::span<std::string const> args)>;
 
 namespace {
 
-auto	c_intf_list(int, std::span<std::string const>) -> int;
-auto	c_net_list(int, std::span<std::string const>) -> int;
-auto	c_net_create(int, std::span<std::string const>) -> int;
-auto	c_net_delete(int, std::span<std::string const>) -> int;
+auto c_intf_list(int, std::span<std::string const>) -> int;
+auto c_net_list(int, std::span<std::string const>) -> int;
+auto c_net_create(int, std::span<std::string const>) -> int;
+auto c_net_delete(int, std::span<std::string const>) -> int;
 
 struct command {
 	using cmdmap = std::map<std::string_view, command>;
 
 	command(cmdhandler handler, std::string_view description)
-	: cm_handler(handler)
-	, cm_description(description) {}
+		: cm_handler(handler), cm_description(description)
+	{
+	}
 
 	command(std::map<std::string_view, command> const &subs,
-		std::string_view description)
-	: cm_subs(subs)
-	, cm_description(description) {}
+		std::string_view			   description)
+		: cm_subs(subs), cm_description(description)
+	{
+	}
 
 	/*
 	 * find a matching sub-command in this command's subs.
@@ -97,7 +99,8 @@ struct command {
 		auto first = last;
 
 		while (first != cm_subs.begin()
-		       && std::prev(first)->first.substr(0, name.size()) == name)
+		       && std::prev(first)->first.substr(0, name.size())
+				  == name)
 			--first;
 
 		if (std::distance(first, last) == 1)
@@ -108,26 +111,24 @@ struct command {
 			return std::unexpected("ambiguous command"s);
 	}
 
-	cmdhandler		cm_handler;
-	cmdmap			cm_subs;
-	std::string_view	cm_description;
+	cmdhandler	 cm_handler;
+	cmdmap		 cm_subs;
+	std::string_view cm_description;
 };
 
 command::cmdmap intf_cmds{
-	{ "list"sv,	command(c_intf_list, "list interfaces"sv) },
+	{"list"sv, command(c_intf_list, "list interfaces"sv)},
 };
 
 command::cmdmap net_cmds{
-	{ "list"sv,	command(c_net_list, "list networks"sv) },
-	{ "create"sv,	command(c_net_create, "create new network"sv) },
-	{ "delete"sv,	command(c_net_delete, "delete existing network"sv) },
+	{"list"sv,   command(c_net_list,   "list networks"sv)		 },
+	{"create"sv, command(c_net_create, "create new network"sv)	  },
+	{"delete"sv, command(c_net_delete, "delete existing network"sv)},
 };
 
 command::cmdmap root_cmds{
-	{ "interface"sv,	command(intf_cmds,
-					"configure layer 2 interfaces"sv) },
-	{ "network"sv,		command(net_cmds,
-					"configure layer 3 networks"sv ) },
+	{"interface"sv, command(intf_cmds, "configure layer 2 interfaces"sv)},
+	{"network"sv,   command(net_cmds,	"configure layer 3 networks"sv)  },
 };
 
 command root_cmd(root_cmds, ""sv);
@@ -135,12 +136,11 @@ command root_cmd(root_cmds, ""sv);
 /*
  * send the given command to the server and return the response.
  */
-auto nv_xfer(int server, nvl const &cmd)
-	-> std::expected<nvl, std::error_code>
+auto nv_xfer(int server, nvl const &cmd) -> std::expected<nvl, std::error_code>
 {
-ssize_t		 n;
-struct iovec	 iov;
-struct msghdr	 mhdr;
+	ssize_t	      n;
+	struct iovec  iov;
+	struct msghdr mhdr;
 
 	/* make sure the nvlist is not errored */
 	if (auto error = cmd.error(); error)
@@ -180,7 +180,7 @@ struct msghdr	 mhdr;
 
 	if (n == 0) {
 		std::print(stderr, "{}: empty reply from server\n",
-			getprogname());
+			   getprogname());
 		return std::unexpected(std::make_error_code(std::errc(EINVAL)));
 	}
 
@@ -210,8 +210,8 @@ auto send_simple_command(int server, std::string_view command)
 	return nv_xfer(server, cmd);
 }
 
-void
-usage(command const &root) {
+void usage(command const &root)
+{
 	std::print(stderr, "usage: {} [--libxo=...] <command>\n",
 		   getprogname());
 	std::print(stderr, "\n");
@@ -219,27 +219,24 @@ usage(command const &root) {
 	std::print(stderr, "\n");
 
 	for (auto &&cmd: root.cm_subs)
-		std::print(stderr, "  {:<20} {}\n",
-			   cmd.first,
+		std::print(stderr, "  {:<20} {}\n", cmd.first,
 			   cmd.second.cm_description);
 }
 
-int
-c_intf_list(int server, std::span<std::string const> args)
+int c_intf_list(int server, std::span<std::string const> args)
 {
-	xo::xo xo_guard;
+	xo::xo	      xo_guard;
 	xo::container intf_container("interface-list");
 
 	if (!args.empty()) {
-		xo::emit("{E/usage: %s interface list}\n",
-			getprogname());
+		xo::emit("{E/usage: %s interface list}\n", getprogname());
 		return 1;
 	}
 
 	auto resp = send_simple_command(server, proto::cc_getifs);
 	if (!resp) {
-		xo::emit("{E:/%s: failed to send command: %s\n}",
-			getprogname(), resp.error().message());
+		xo::emit("{E:/%s: failed to send command: %s\n}", getprogname(),
+			 resp.error().message());
 		return 1;
 	}
 
@@ -250,16 +247,16 @@ c_intf_list(int server, std::span<std::string const> args)
 	}
 
 	xo::emit("{T:NAME/%-16s}{T:ADMIN/%-6s}{T:OPER/%-5s}"
-		"{T:TX/%8s}{T:RX/%8s}\n");
+		 "{T:TX/%8s}{T:RX/%8s}\n");
 
 	for (auto &&intf: resp->get_nvlist_array(proto::cp_iface)) {
 		auto operstate = "UNK"sv, adminstate = "UNK"sv;
 
-		if (!intf.exists_string(proto::cp_iface_name) ||
-		    !intf.exists_number(proto::cp_iface_admin) ||
-		    !intf.exists_number(proto::cp_iface_oper) ||
-		    !intf.exists_number(proto::cp_iface_txrate) ||
-		    !intf.exists_number(proto::cp_iface_rxrate)) {
+		if (!intf.exists_string(proto::cp_iface_name)
+		    || !intf.exists_number(proto::cp_iface_admin)
+		    || !intf.exists_number(proto::cp_iface_oper)
+		    || !intf.exists_number(proto::cp_iface_txrate)
+		    || !intf.exists_number(proto::cp_iface_rxrate)) {
 			xo::emit("{E:/%s: invalid response}\n", getprogname());
 			return 1;
 		}
@@ -297,24 +294,22 @@ c_intf_list(int server, std::span<std::string const> args)
 
 		xo::instance intf_instance("interface");
 		xo::emit("{V:name/%-16s}"
-			"{V:admin-state/%-6s}"
-			"{V:oper-state/%-5s}"
-			"{[:8}{Vhn,hn-decimal,hn-1000:txrate/%ju}b/s{]:}"
-			"{[:8}{Vhn,hn-decimal,hn-1000:rxrate/%ju}b/s{]:}"
-			"\n",
-			intf.get_string(proto::cp_iface_name),
-			adminstate, operstate,
-			intf.get_number(proto::cp_iface_txrate),
-			intf.get_number(proto::cp_iface_rxrate));
+			 "{V:admin-state/%-6s}"
+			 "{V:oper-state/%-5s}"
+			 "{[:8}{Vhn,hn-decimal,hn-1000:txrate/%ju}b/s{]:}"
+			 "{[:8}{Vhn,hn-decimal,hn-1000:rxrate/%ju}b/s{]:}"
+			 "\n",
+			 intf.get_string(proto::cp_iface_name), adminstate,
+			 operstate, intf.get_number(proto::cp_iface_txrate),
+			 intf.get_number(proto::cp_iface_rxrate));
 	}
 
 	return 0;
 }
 
-auto c_net_list(int server, std::span<std::string const> args)
-	-> int
+auto c_net_list(int server, std::span<std::string const> args) -> int
 {
-	xo::xo xo_guard;
+	xo::xo	      xo_guard;
 	xo::container net_container("network-list");
 
 	if (!args.empty()) {
@@ -324,8 +319,8 @@ auto c_net_list(int server, std::span<std::string const> args)
 
 	auto resp = send_simple_command(server, proto::cc_getnets);
 	if (!resp) {
-		xo::emit("{E:/%s: failed to send command: %s\n}",
-			getprogname(), resp.error().message());
+		xo::emit("{E:/%s: failed to send command: %s\n}", getprogname(),
+			 resp.error().message());
 		return 1;
 	}
 
@@ -335,7 +330,7 @@ auto c_net_list(int server, std::span<std::string const> args)
 
 	xo::emit("{T:NAME/%-16s}\n");
 
-	for (auto &&net : resp->get_nvlist_array(proto::cp_nets)) {
+	for (auto &&net: resp->get_nvlist_array(proto::cp_nets)) {
 		if (!net.exists_string(proto::cp_net_name)) {
 			xo::emit("{E:/%s: invalid response}\n", getprogname());
 			return 1;
@@ -349,14 +344,13 @@ auto c_net_list(int server, std::span<std::string const> args)
 	return 0;
 }
 
-auto c_net_create(int server, std::span<std::string const> args)
-	-> int
+auto c_net_create(int server, std::span<std::string const> args) -> int
 {
 	xo::xo xo_guard;
 
 	if (args.size() != 1) {
 		xo::emit("{E/usage: %s network create <name>}\n",
-			getprogname());
+			 getprogname());
 		return 1;
 	}
 
@@ -366,16 +360,16 @@ auto c_net_create(int server, std::span<std::string const> args)
 	cmd.add_string(proto::cp_newnet_name, args[0]);
 
 	if (auto error = cmd.error(); error) {
-		xo::emit("{E:/%s: nvlist: %s\n}",
-			getprogname(), error->message());
+		xo::emit("{E:/%s: nvlist: %s\n}", getprogname(),
+			 error->message());
 		return 1;
 	}
 
 	auto resp = nv_xfer(server, cmd);
 
 	if (!resp) {
-		xo::emit("{E:/%s: failed to send command: %s\n}",
-			getprogname(), resp.error().message());
+		xo::emit("{E:/%s: failed to send command: %s\n}", getprogname(),
+			 resp.error().message());
 		return 1;
 	}
 
@@ -399,7 +393,8 @@ auto c_net_create(int server, std::span<std::string const> args)
 	return 1;
 }
 
-auto c_net_delete(int server, std::span<std::string const> args) -> int {
+auto c_net_delete(int server, std::span<std::string const> args) -> int
+{
 	xo::xo xo_guard;
 
 	if (args.size() != 1) {
@@ -414,16 +409,16 @@ auto c_net_delete(int server, std::span<std::string const> args) -> int {
 	cmd.add_string(proto::cp_delnet_name, args[0]);
 
 	if (auto error = cmd.error(); error) {
-		xo::emit("{E:/%s: nvlist: %s\n}",
-			 getprogname(), error->message());
+		xo::emit("{E:/%s: nvlist: %s\n}", getprogname(),
+			 error->message());
 		return 1;
 	}
 
 	auto resp = nv_xfer(server, cmd);
 
 	if (!resp) {
-		xo::emit("{E:/%s: failed to send command: %s\n}",
-			 getprogname(), resp.error().message());
+		xo::emit("{E:/%s: failed to send command: %s\n}", getprogname(),
+			 resp.error().message());
 		return 1;
 	}
 
@@ -449,8 +444,7 @@ auto c_net_delete(int server, std::span<std::string const> args) -> int {
 
 } // anonymous namespace
 
-auto find_command(command const &root,
-		  std::vector<std::string> &args)
+auto find_command(command const &root, std::vector<std::string> &args)
 	-> std::optional<command const *>
 {
 	if (args.empty()) {
@@ -477,8 +471,7 @@ auto find_command(command const &root,
 		}
 
 		if (args.size() == 1) {
-			std::print(stderr, "{}: incomplete command\n",
-				   args[0]);
+			std::print(stderr, "{}: incomplete command\n", args[0]);
 			return {};
 		}
 
@@ -488,10 +481,10 @@ auto find_command(command const &root,
 	return {};
 }
 
-int
-netd_connect(void) {
-int			sock = -1, i;
-struct sockaddr_un	sun;
+int netd_connect(void)
+{
+	int		   sock = -1, i;
+	struct sockaddr_un sun;
 
 	sock = socket(AF_UNIX, SOCK_SEQPACKET, 0);
 	if (sock == -1) {
@@ -520,8 +513,9 @@ err:
 
 } // namespace netd
 
-auto main(int argc, char **argv) -> int {
-int	server;
+auto main(int argc, char **argv) -> int
+{
+	int server;
 
 	setprogname(argv[0]);
 
@@ -532,11 +526,10 @@ int	server;
 	--argc;
 	++argv;
 
-	auto args = std::span(argv, argv + argc)
-		    | std::views::transform([](auto &&s) {
-			    return std::string(s);
-		    })
-		    | std::ranges::to<std::vector>();
+	auto args =
+		std::span(argv, argv + argc)
+		| std::views::transform([](auto &&s) { return std::string(s); })
+		| std::ranges::to<std::vector>();
 
 	if (args.empty()) {
 		usage(netd::root_cmd);

@@ -22,16 +22,17 @@
 
 module;
 
-#include	<cstdarg>
-#include	<string>
-#include	<format>
-#include	<print>
+#include <cstdarg>
+#include <format>
+#include <print>
+#include <string>
 
 export module netd.panic;
 
 namespace netd {
 
-[[noreturn]] auto _panic(std::string_view msg) -> void {
+[[noreturn]] auto _panic(std::string_view msg) -> void
+{
 	std::print(stderr, "panic: {}\n", msg);
 	std::fflush(stderr);
 	abort();
@@ -39,8 +40,7 @@ namespace netd {
 
 /* log a message at the highest priority and immediately abort */
 export template<typename... Args>
-[[noreturn]] auto panic(std::format_string<Args...> fmt, Args&&... args)
-	-> void
+[[noreturn]] auto panic(std::format_string<Args...> fmt, Args &&...args) -> void
 {
 	auto msg = std::format(fmt, std::forward<Args>(args)...);
 	_panic(msg);

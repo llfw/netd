@@ -22,8 +22,8 @@
 
 module;
 
-#include	<cerrno>
-#include	<system_error>
+#include <cerrno>
+#include <system_error>
 
 /*
  * Miscellaneous error handling utilities.
@@ -34,9 +34,9 @@ export module netd.error;
 export namespace netd::error {
 
 // Create an std::error_code from an errno.
-auto from_errno(int err = errno) {
+auto from_errno(int err = errno)
+{
 	return std::make_error_code(std::errc(err));
-
 }
 
-} // export namespace netd::error
+} // namespace netd::error

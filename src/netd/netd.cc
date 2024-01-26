@@ -20,17 +20,17 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include	<sys/types.h>
-#include	<sys/event.h>
+#include <sys/types.h>
+#include <sys/event.h>
 
-#include	<cerrno>
-#include	<cstdarg>
-#include	<cstdio>
-#include	<cstdlib>
-#include	<cstring>
-#include	<coroutine>
-#include	<ctime>
-#include	<print>
+#include <cerrno>
+#include <coroutine>
+#include <cstdarg>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <ctime>
+#include <print>
 
 import network;
 import ctl;
@@ -42,7 +42,8 @@ import task;
 
 namespace netd {
 
-auto start() -> jtask<void> {
+auto start() -> jtask<void>
+{
 	/*
 	 * iface has to be initialised before netlink so it can receive
 	 * netlink's boot-time newlink/newaddr messages.
@@ -67,8 +68,8 @@ auto start() -> jtask<void> {
 
 } // namespace netd
 
-int
-main(int argc, char **argv) {
+int main(int argc, char **argv)
+{
 	using namespace netd;
 
 	time(&kq::current_time);

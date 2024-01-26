@@ -22,32 +22,32 @@
 
 module;
 
-#include	<sys/types.h>
-#include	<sys/queue.h>
-#include	<sys/event.h>
-#include	<sys/socket.h>
+#include <sys/types.h>
+#include <sys/event.h>
+#include <sys/queue.h>
+#include <sys/socket.h>
 
-#include	<netinet/in.h>
-#include	<netinet/if_ether.h>
+#include <netinet/if_ether.h>
+#include <netinet/in.h>
 
-#include	<netlink/netlink.h>
-#include	<netlink/route/common.h>
-#include	<netlink/route/route.h>
-#include	<netlink/route/interface.h>
+#include <netlink/netlink.h>
+#include <netlink/route/common.h>
+#include <netlink/route/interface.h>
+#include <netlink/route/route.h>
 
-#include	<cerrno>
-#include	<cstring>
-#include	<cstdlib>
-#include	<cinttypes>
-#include	<coroutine>
-#include	<string>
-#include	<chrono>
-#include	<new>
-#include	<map>
-#include	<expected>
+#include <cerrno>
+#include <chrono>
+#include <cinttypes>
+#include <coroutine>
+#include <cstdlib>
+#include <cstring>
+#include <expected>
+#include <map>
+#include <new>
+#include <string>
 
-#include	"defs.hh"
-#include	"generator.hh"
+#include "defs.hh"
+#include "generator.hh"
 
 import log;
 import kq;
@@ -80,71 +80,70 @@ struct interface {
 	interface() = default;
 	interface(interface const &) = delete;
 	interface(interface &&) = default;
-	auto operator=(interface const &) -> interface& = delete;
-	auto operator=(interface &&) -> interface& = default;
+	auto operator=(interface const &) -> interface & = delete;
+	auto operator=(interface &&) -> interface & = default;
 
-	uuid			if_uuid = {};
-	std::string		if_name;
-	int			if_index = 0;
-	uint8_t			if_operstate = 0;
-	uint32_t		if_flags = 0;
-	std::vector<ifaddr *>	if_addrs;
+	uuid		      if_uuid = {};
+	std::string	      if_name;
+	int		      if_index = 0;
+	uint8_t		      if_operstate = 0;
+	uint32_t	      if_flags = 0;
+	std::vector<ifaddr *> if_addrs;
 	/* stats history */
-	interface_rate		if_obytes;
-	interface_rate		if_ibytes;
+	interface_rate if_obytes;
+	interface_rate if_ibytes;
 };
 
 isam::isam<interface> interfaces;
 
 isam::index<interface, std::string_view> interfaces_byname(
 	interfaces,
-	[](interface const &intf) -> std::string_view {
-		return intf.if_name;
-	});
+	[](interface const &intf) -> std::string_view { return intf.if_name; });
 
-isam::index<interface, uuid> interfaces_byuuid(
-	interfaces,
-	[](interface const &intf) {
-		return intf.if_uuid;
-	});
+isam::index<interface, uuid> interfaces_byuuid(interfaces,
+					       [](interface const &intf) {
+						       return intf.if_uuid;
+					       });
 
-isam::index<interface, int> interfaces_byindex(
-	interfaces,
-	[](interface const &intf) {
-		return intf.if_index;
-	});
+isam::index<interface, int> interfaces_byindex(interfaces,
+					       [](interface const &intf) {
+						       return intf.if_index;
+					       });
 
 std::uint64_t generation = 0;
 
 /* add a new interface */
-auto add_intf(interface &&net) -> interface & {
-        auto it = interfaces.insert(interfaces.end(), std::move(net));
-        // we don't need to increment generation here because adding a new
-        // interface doesn't invalidate handles
-        return *it;
+auto add_intf(interface &&net) -> interface &
+{
+	auto it = interfaces.insert(interfaces.end(), std::move(net));
+	// we don't need to increment generation here because adding a new
+	// interface doesn't invalidate handles
+	return *it;
 }
 
 /* fetch an interface given a handle */
-auto getbyhandle(handle const &h) -> interface & {
-        if (h.ih_gen == generation)
-                return *h.ih_ptr;
+auto getbyhandle(handle const &h) -> interface &
+{
+	if (h.ih_gen == generation)
+		return *h.ih_ptr;
 
-        if (auto intf = interfaces_byuuid.find(h.ih_uuid);
-            intf != interfaces_byuuid.end()) {
-                h.ih_gen = generation;
-                return *h.ih_ptr;
-        }
+	if (auto intf = interfaces_byuuid.find(h.ih_uuid);
+	    intf != interfaces_byuuid.end()) {
+		h.ih_gen = generation;
+		return *h.ih_ptr;
+	}
 
 	panic("iface: bad handle");
 }
 
 /* create a new handle to an existing interface */
-auto make_handle(interface *intf) -> handle {
-        auto h = handle();
-        h.ih_ptr = intf;
-        h.ih_uuid = intf->if_uuid;
-        h.ih_gen = generation;
-        return h;
+auto make_handle(interface *intf) -> handle
+{
+	auto h = handle();
+	h.ih_ptr = intf;
+	h.ih_uuid = intf->if_uuid;
+	h.ih_gen = generation;
+	return h;
 }
 
 /* public fetch functions */
@@ -159,8 +158,7 @@ auto _getbyname(std::string_view name)
 	return std::unexpected(error::from_errno(ESRCH));
 }
 
-auto getbyname(std::string_view name)
-	-> std::expected<handle, std::error_code>
+auto getbyname(std::string_view name) -> std::expected<handle, std::error_code>
 {
 	auto intf = _getbyname(name);
 	if (intf)
@@ -202,14 +200,16 @@ auto getbyuuid(uuid id) -> std::expected<handle, std::error_code>
 	return std::unexpected(intf.error());
 }
 
-auto remove(int index) -> void {
+auto remove(int index) -> void
+{
 	auto intf = interfaces_byindex.find(index);
 	if (intf == interfaces_byindex.end())
 		panic("iface: removing non-existent index {}", index);
 	interfaces.erase(intf->second);
 }
 
-auto info(handle const &hdl) -> ifinfo {
+auto info(handle const &hdl) -> ifinfo
+{
 	auto &intf = getbyhandle(hdl);
 
 	ifinfo info;
@@ -224,29 +224,31 @@ auto info(handle const &hdl) -> ifinfo {
 	return info;
 }
 
-auto getall(void) -> std::generator<handle> {
+auto getall(void) -> std::generator<handle>
+{
 	for (auto &&intf: interfaces)
 		co_yield make_handle(&intf);
 }
 
 /* netlink event handlers */
 
-void	hdl_newlink(netlink::newlink_data);
+void	   hdl_newlink(netlink::newlink_data);
 event::sub newlink_sub;
 
-void	hdl_dellink(netlink::dellink_data);
+void	   hdl_dellink(netlink::dellink_data);
 event::sub dellink_sub;
 
-void	hdl_newaddr(netlink::newaddr_data);
+void	   hdl_newaddr(netlink::newaddr_data);
 event::sub newaddr_sub;
 
-void	hdl_deladdr(netlink::deladdr_data);
+void	   hdl_deladdr(netlink::deladdr_data);
 event::sub deladdr_sub;
 
 /* stats update timer */
 auto stats(void) -> jtask<void>;
 
-auto init(void) -> int {
+auto init(void) -> int
+{
 	newlink_sub = event::sub(netlink::evt_newlink, hdl_newlink);
 	dellink_sub = event::sub(netlink::evt_dellink, hdl_dellink);
 	newaddr_sub = event::sub(netlink::evt_newaddr, hdl_newaddr);
@@ -256,11 +258,12 @@ auto init(void) -> int {
 	return 0;
 }
 
-auto hdl_newlink(netlink::newlink_data msg) -> void {
+auto hdl_newlink(netlink::newlink_data msg) -> void
+{
 	/* check for duplicate interfaces */
 	for (auto &&intf: interfaces) {
-		if (intf.if_name == msg.nl_ifname ||
-		    intf.if_index == msg.nl_ifindex) {
+		if (intf.if_name == msg.nl_ifname
+		    || intf.if_index == msg.nl_ifindex) {
 			return;
 		}
 	}
@@ -276,7 +279,8 @@ auto hdl_newlink(netlink::newlink_data msg) -> void {
 	interfaces.insert(interfaces.end(), std::move(intf));
 }
 
-auto hdl_dellink(netlink::dellink_data msg) -> void {
+auto hdl_dellink(netlink::dellink_data msg) -> void
+{
 	auto intf = getbyindex(msg.dl_ifindex);
 	if (!intf)
 		log::warning("hdl_dellink: missing ifindex {}?",
@@ -288,9 +292,9 @@ auto hdl_dellink(netlink::dellink_data msg) -> void {
 	remove(iff.index);
 }
 
-ifaddr *
-ifaddr_new(int family, void *addr, int plen) {
-ifaddr	*ret = NULL;
+ifaddr *ifaddr_new(int family, void *addr, int plen)
+{
+	ifaddr *ret = NULL;
 
 	if (plen < 0)
 		goto err;
@@ -337,7 +341,8 @@ err:
 	return NULL;
 }
 
-auto hdl_newaddr(netlink::newaddr_data msg) -> void {
+auto hdl_newaddr(netlink::newaddr_data msg) -> void
+{
 	auto ret = _getbyindex(msg.na_ifindex);
 	if (!ret)
 		return;
@@ -353,7 +358,8 @@ auto hdl_newaddr(netlink::newaddr_data msg) -> void {
 	intf->if_addrs.push_back(addr);
 }
 
-auto hdl_deladdr(netlink::deladdr_data msg) -> void {
+auto hdl_deladdr(netlink::deladdr_data msg) -> void
+{
 	/* TODO: implement */
 
 	auto ret = _getbyindex(msg.da_ifindex);
@@ -366,9 +372,9 @@ auto hdl_deladdr(netlink::deladdr_data msg) -> void {
 
 /* calculate interface stats */
 
-static void
-ifdostats(interface &intf, rtnl_link_stats64 *ostats) {
-rtnl_link_stats64	stats;
+static void ifdostats(interface &intf, rtnl_link_stats64 *ostats)
+{
+	rtnl_link_stats64 stats;
 
 	/* copy out stats since netlink can misalign it */
 	std::memcpy(&stats, ostats, sizeof(stats));
@@ -377,8 +383,9 @@ rtnl_link_stats64	stats;
 	intf.if_ibytes.update(stats.rx_bytes);
 }
 
-auto stats_update(void) -> task<void> {
-struct nlmsghdr		 hdr;
+auto stats_update(void) -> task<void>
+{
+	struct nlmsghdr hdr;
 
 	log::debug("iface: running stats");
 
@@ -412,10 +419,10 @@ struct nlmsghdr		 hdr;
 		if (*ret == nullptr)
 			break;
 
-		auto rhdr = *ret;
-		ifinfomsg	*ifinfo = NULL;
-		rtattr		*attrmsg = NULL;
-		size_t		 attrlen;
+		auto	   rhdr = *ret;
+		ifinfomsg *ifinfo = NULL;
+		rtattr	  *attrmsg = NULL;
+		size_t	   attrlen;
 
 		if (rhdr->nlmsg_type == NLMSG_DONE)
 			break;
@@ -434,21 +441,22 @@ struct nlmsghdr		 hdr;
 		auto &intf = *intf_;
 
 		for (attrmsg = IFLA_RTA(ifinfo), attrlen = IFLA_PAYLOAD(rhdr);
-		     RTA_OK(attrmsg, (int) attrlen);
+		     RTA_OK(attrmsg, (int)attrlen);
 		     attrmsg = RTA_NEXT(attrmsg, attrlen)) {
 
 			switch (attrmsg->rta_type) {
 			case IFLA_STATS64:
 				ifdostats(*intf,
-					static_cast<rtnl_link_stats64 *>(
-						RTA_DATA(attrmsg)));
+					  static_cast<rtnl_link_stats64 *>(
+						  RTA_DATA(attrmsg)));
 				break;
 			}
 		}
 	}
 }
 
-auto stats() -> jtask<void> {
+auto stats() -> jtask<void>
+{
 	using namespace std::literals;
 
 	for (;;) {

@@ -27,8 +27,8 @@ module;
  * will be notified when the event occurs.
  */
 
-#include	<functional>
-#include	<set>
+#include <functional>
+#include <set>
 
 export module netd.event;
 
@@ -42,12 +42,13 @@ struct event final {
 
 	event(event const &) = delete;
 	event(event &&) = delete;
-	auto operator=(event const &) -> event& = delete;
-	auto operator=(event &&) -> event& = delete;
+	auto operator=(event const &) -> event & = delete;
+	auto operator=(event &&) -> event & = delete;
 
-	using handler = std::function<void (Args...)>;
+	using handler = std::function<void(Args...)>;
 
-	auto dispatch(Args... args) {
+	auto dispatch(Args... args)
+	{
 		for (auto &&handler: _handlers)
 			(*handler)(std::forward<Args>(args)...);
 	}
@@ -62,20 +63,22 @@ struct sub final {
 	sub() = default;
 
 	sub(sub &&) = default;
-	auto operator=(sub &&) -> sub& = default;
+	auto operator=(sub &&) -> sub & = default;
 
 	sub(sub const &) = delete;
-	auto operator=(sub const &) -> sub& = delete;
+	auto operator=(sub const &) -> sub & = delete;
 
 	template<typename... Args>
 	sub(event<Args...> &ev, event<Args...>::handler handler)
-	: _impl(new impl<Args...>(ev, std::move(handler))) {}
+		: _impl(new impl<Args...>(ev, std::move(handler)))
+	{
+	}
 
 	struct impl_base {
 		impl_base(impl_base const &) = delete;
 		impl_base(impl_base &&) = delete;
-		auto operator=(impl_base const &) -> impl_base& = delete;
-		auto operator=(impl_base const &&) -> impl_base& = delete;
+		auto operator=(impl_base const &) -> impl_base & = delete;
+		auto operator=(impl_base const &&) -> impl_base & = delete;
 
 		virtual ~impl_base() {}
 
@@ -85,25 +88,25 @@ struct sub final {
 
 	template<typename... Args>
 	struct impl final : impl_base {
-		impl(event<Args...> &ev,
-		     event<Args...>::handler handler)
-		: _ev(ev)
-		, _handler(std::move(handler)) {
+		impl(event<Args...> &ev, event<Args...>::handler handler)
+			: _ev(ev), _handler(std::move(handler))
+		{
 			_ev._handlers.insert(&_handler);
 		}
 
 		impl(impl const &) = delete;
 		impl(impl &&) = delete;
-		auto operator=(impl const &) -> impl& = delete;
-		auto operator=(impl const &&) -> impl& = delete;
+		auto operator=(impl const &) -> impl & = delete;
+		auto operator=(impl const &&) -> impl & = delete;
 
-		~impl() {
+		~impl()
+		{
 			auto it = _ev._handlers.find(&_handler);
 			_ev._handlers.erase(it);
 		}
 
 	private:
-		event<Args...>& _ev;
+		event<Args...>	       &_ev;
 		event<Args...>::handler _handler;
 	};
 
@@ -111,4 +114,4 @@ private:
 	std::unique_ptr<impl_base> _impl;
 };
 
-} // export namespace netd::event
+} // namespace netd::event

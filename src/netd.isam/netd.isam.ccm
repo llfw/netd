@@ -22,13 +22,13 @@
 
 module;
 
-#include	<list>
-#include	<vector>
-#include	<functional>
-#include	<algorithm>
-#include	<ranges>
-#include	<unordered_map>
-#include	<cassert>
+#include <algorithm>
+#include <cassert>
+#include <functional>
+#include <list>
+#include <ranges>
+#include <unordered_map>
+#include <vector>
 
 import netd.event;
 
@@ -48,7 +48,7 @@ export module netd.isam;
 namespace netd::isam {
 
 template<typename T, typename K>
-using extractor = std::function<K (T const &)>;
+using extractor = std::function<K(T const &)>;
 
 export template<typename T>
 struct isam final {
@@ -79,21 +79,25 @@ struct isam final {
 	 * insert()
 	 */
 
-	auto insert(T const &v) -> iterator {
+	auto insert(T const &v) -> iterator
+	{
 		return insert(_list.end(), v);
 	}
 
-	auto insert(T &&v) -> iterator {
+	auto insert(T &&v) -> iterator
+	{
 		return insert(_list.end(), std::move(v));
 	}
 
-	auto insert(iterator where, T const &v) -> iterator {
+	auto insert(iterator where, T const &v) -> iterator
+	{
 		auto it = _list.insert(where, v);
 		object_added.dispatch(*this, it);
 		return it;
 	}
 
-	auto insert(iterator where, T &&v) -> iterator {
+	auto insert(iterator where, T &&v) -> iterator
+	{
 		auto it = _list.insert(where, std::move(v));
 		object_added.dispatch(*this, it);
 		return it;
@@ -104,7 +108,8 @@ struct isam final {
 	 */
 
 	template<typename... Args>
-	auto emplace(iterator where, Args&&... args) -> iterator {
+	auto emplace(iterator where, Args &&...args) -> iterator
+	{
 		auto it = _list.emplace(where, std::forward<Args>(args)...);
 		object_added.dispatch(*this, it);
 		return it;
@@ -114,7 +119,8 @@ struct isam final {
 	 * erase()
 	 */
 
-	auto erase(iterator item) -> void {
+	auto erase(iterator item) -> void
+	{
 		object_removed.dispatch(*this, item);
 		_list.erase(item);
 	}
@@ -123,35 +129,43 @@ struct isam final {
 	 * begin(), end()
 	 */
 
-	auto begin() {
+	auto begin()
+	{
 		return _list.begin();
 	}
 
-	auto begin() const {
+	auto begin() const
+	{
 		return _list.begin();
 	}
 
-	auto end() {
+	auto end()
+	{
 		return _list.end();
 	}
 
-	auto end() const {
+	auto end() const
+	{
 		return _list.end();
 	}
 
-	auto rbegin() {
+	auto rbegin()
+	{
 		return _list.rbegin();
 	}
 
-	auto rbegin() const {
+	auto rbegin() const
+	{
 		return _list.rbegin();
 	}
 
-	auto rend() {
+	auto rend()
+	{
 		return _list.rend();
 	}
 
-	auto rend() const {
+	auto rend() const
+	{
 		return _list.rend();
 	}
 
@@ -162,7 +176,7 @@ private:
 export template<typename T, typename K>
 struct index final {
 private:
-	extractor<T, K> _ext;
+	extractor<T, K>					  _ext;
 	std::unordered_map<K, typename isam<T>::iterator> _map;
 
 	event::sub _object_added;
@@ -170,57 +184,67 @@ private:
 
 public:
 	template<typename Func>
-	index(isam<T> &isam, Func ext)
-	: _ext(std::move(ext)) {
+	index(isam<T> &isam, Func ext) : _ext(std::move(ext))
+	{
 
-		_object_added = event::sub(isam.object_added,
-				   [&] (auto &, auto it) {
-					   _map.insert({_ext(*it), it});
-				});
+		_object_added =
+			event::sub(isam.object_added, [&](auto &, auto it) {
+				_map.insert({_ext(*it), it});
+			});
 
-		_object_removed = event::sub(isam.object_removed,
-				   [&] (auto &, auto it) {
-					   _map.erase(_map.find(_ext(*it)));
-				});
+		_object_removed =
+			event::sub(isam.object_removed, [&](auto &, auto it) {
+				_map.erase(_map.find(_ext(*it)));
+			});
 	}
 
-	auto find(K const &key) {
+	auto find(K const &key)
+	{
 		return _map.find(key);
 	}
 
-	auto find(K const &key) const {
+	auto find(K const &key) const
+	{
 		return _map.find(key);
 	}
 
-	auto begin() {
+	auto begin()
+	{
 		return _map.begin();
 	}
 
-	auto begin() const {
+	auto begin() const
+	{
 		return _map.begin();
 	}
 
-	auto end() {
+	auto end()
+	{
 		return _map.end();
 	}
 
-	auto end() const {
+	auto end() const
+	{
 		return _map.end();
 	}
 
-	auto rbegin() {
+	auto rbegin()
+	{
 		return _map.rbegin();
 	}
 
-	auto rbegin() const {
+	auto rbegin() const
+	{
 		return _map.rbegin();
 	}
 
-	auto rend() {
+	auto rend()
+	{
 		return _map.rend();
 	}
 
-	auto rend() const {
+	auto rend() const
+	{
 		return _map.rend();
 	}
 
@@ -228,7 +252,7 @@ private:
 };
 
 template<typename T, typename Func>
-index(isam<T> &, Func) -> index<T, decltype(std::declval<Func>()(std::declval<T>()))>;
-
+index(isam<T> &, Func)
+	-> index<T, decltype(std::declval<Func>()(std::declval<T>()))>;
 
 } // namespace netd::isam
