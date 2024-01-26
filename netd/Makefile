@@ -14,6 +14,6 @@ SRCS	= netd.cc			\
 	  panic.ccm			\
 	  task.ccm
 LIBS	= -lnv
-MODULES	= isam nvl uuid netd.proto netd.error netd.rate netd.event
+MODULES	= netd.isam nvl uuid netd.proto netd.error netd.rate netd.event
 
 .include "../mk/prog.mk"

@@ -30,6 +30,8 @@ module;
 #include	<unordered_map>
 #include	<cassert>
 
+import netd.event;
+
 export module isam;
 
 /*
@@ -47,28 +49,6 @@ namespace netd::isam {
 
 template<typename T, typename K>
 using extractor = std::function<K (T const &)>;
-
-export template<typename T> struct isam;
-
-template<typename T>
-struct index_base {
-	virtual ~index_base() {}
-
-protected:
-	template<typename T1> friend struct isam;
-	using list_iter = typename std::list<T>::iterator;
-
-	isam<T> *_isam;
-
-	index_base(struct isam<T> *isam)
-	: _isam(isam) {
-	}
-
-	virtual auto insert(list_iter) -> void = 0;
-	virtual auto erase(T const &) -> void = 0;
-};
-
-export template<typename T, typename K> struct index;
 
 export template<typename T>
 struct isam final {
@@ -89,45 +69,59 @@ struct isam final {
 	auto operator=(isam const &) = delete;
 	auto operator=(isam &&) = delete;
 
-	~isam() {
-		for (auto idx: _indices)
-			idx->_isam = nullptr;
-	}
+	// this event is raised after a new object is inserted
+	event::event<isam<T> &, iterator> object_added;
+
+	// this event is raised before an existing object is removed
+	event::event<isam<T> &, iterator> object_removed;
+
+	/*
+	 * insert()
+	 */
 
 	auto insert(T const &v) -> iterator {
-		insert(_list.end(), v);
+		return insert(_list.end(), v);
 	}
 
 	auto insert(T &&v) -> iterator {
-		insert(_list.end(), std::move(v));
+		return insert(_list.end(), std::move(v));
 	}
 
 	auto insert(iterator where, T const &v) -> iterator {
 		auto it = _list.insert(where, v);
-		for (auto idx : _indices)
-			idx->insert(it);
+		object_added.dispatch(*this, it);
 		return it;
 	}
+
 	auto insert(iterator where, T &&v) -> iterator {
 		auto it = _list.insert(where, std::move(v));
-		for (auto idx : _indices)
-			idx->insert(it);
+		object_added.dispatch(*this, it);
 		return it;
 	}
+
+	/*
+	 * emplace()
+	 */
 
 	template<typename... Args>
 	auto emplace(iterator where, Args&&... args) -> iterator {
 		auto it = _list.emplace(where, std::forward<Args>(args)...);
-		for (auto idx : _indices)
-			idx->insert(it);
+		object_added.dispatch(*this, it);
 		return it;
 	}
 
+	/*
+	 * erase()
+	 */
+
 	auto erase(iterator item) -> void {
-		for (auto idx : _indices)
-			idx->erase(*item);
+		object_removed.dispatch(*this, item);
 		_list.erase(item);
 	}
+
+	/*
+	 * begin(), end()
+	 */
 
 	auto begin() {
 		return _list.begin();
@@ -163,30 +157,31 @@ struct isam final {
 
 private:
 	std::list<T> _list;
-	std::vector<index_base<T> *> _indices;
-	template<typename T1, typename K> friend struct index;
 };
 
 export template<typename T, typename K>
-struct index final : index_base<T> {
+struct index final {
 private:
-	friend struct isam<T>;
-	using typename index_base<T>::list_iter;
+	extractor<T, K> _ext;
+	std::unordered_map<K, typename isam<T>::iterator> _map;
+
+	event::sub _object_added;
+	event::sub _object_removed;
 
 public:
 	template<typename Func>
 	index(isam<T> &isam, Func ext)
-	: index_base<T>(&isam), _ext(std::move(ext)) {
-		this->_isam->_indices.push_back(this);
-	}
+	: _ext(std::move(ext)) {
 
-	~index() {
-		if (!this->_isam)
-			return;
+		_object_added = sub(isam.object_added,
+				   [&] (auto &, auto it) {
+					   _map.insert(_ext(*it), it);
+				});
 
-		auto it = std::ranges::find(this->_isam->_indices, this);
-		assert(it != this->_isam->_indices.end());
-		this->_isam->_indices.erase(it);
+		_object_removed = sub(isam.object_added,
+				   [&] (auto &, auto it) {
+					   _map.remove(_map.find(_ext(*it)));
+				});
 	}
 
 	auto find(K const &key) {
@@ -230,19 +225,6 @@ public:
 	}
 
 private:
-	extractor<T, K> _ext;
-	std::unordered_map<K, list_iter> _map;
-
-	auto insert(list_iter it) -> void {
-		auto key = _ext(*it);
-		_map.insert({key, it});
-	}
-
-	auto erase(T const &item) -> void {
-		auto key = _ext(item);
-		_map.erase(_map.find(key));
-	}
-
 };
 
 template<typename T, typename Func>
