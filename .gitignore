@@ -1,6 +1,3 @@
-/local.mk
 *.swp*
 *.core
-netd/netd
-netctl/netctl
-/obj
+/build

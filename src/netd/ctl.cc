@@ -47,12 +47,12 @@ module;
 module ctl;
 
 import network;
-import nvl;
+import netd.nvl;
 import log;
 import kq;
 import iface;
 import task;
-import panic;
+import netd.panic;
 import netd.proto;
 import netd.error;
 

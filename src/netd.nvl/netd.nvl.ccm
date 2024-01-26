@@ -39,15 +39,15 @@ module;
 #include	<vector>
 #include	<ranges>
 
-export module nvl;
+export module netd.nvl;
 
 /*
  * an nvlist
  */
 
-namespace netd {
+export namespace netd {
 
-export struct nvl {
+struct nvl {
 	nvl(int flags = 0) : _nv(nvlist_create(flags)), _owning(true) {}
 
 	explicit nvl(nvlist_t *nv, bool owning = true)
@@ -742,4 +742,4 @@ private:
 	bool _owning;
 };
 
-} // namespace netd
+} // export namespace netd

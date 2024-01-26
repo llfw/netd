@@ -33,9 +33,9 @@ extern "C" { // TODO: file upstream bug
 #include	<libxo/xo.h>
 }
 
-export module xo;
+export module netd.xo;
 
-namespace xo {
+namespace netd::xo {
 
 /*
  * xo calls xo_finish() when it's destroyed.
@@ -101,83 +101,79 @@ private:
  * xo::emit("{V:label/%s}", value);
  */
 
-namespace detail {
+// remove the first element of a tuple
+template <typename T, typename... Rest>
+auto drop1(std::tuple<T, Rest...> const &tuple)
+{
+    return std::apply([](auto &&, auto const &... args) {
+	    return std::tie(args...);
+    }, tuple);
+}
 
-	// remove the first element of a tuple
-	template <typename T, typename... Rest>
-	auto drop1(std::tuple<T, Rest...> const &tuple)
-	{
-	    return std::apply([](auto &&, auto const &... args) {
-		    return std::tie(args...);
-	    }, tuple);
-	}
+/*
+ * the idea here is that _emit() is first called with a tuple of raw
+ * arguments passed to xo::_emit(), and an empty variadic argument list.
+ * each iteration removes one item from the tuple and puts the
+ * converted value at the end of the argument list.  eventually, the
+ * version with an empty tuple<> is called, which forwards all the
+ * converted arguments to xo__emit().
+ */
 
-	/*
-	 * the idea here is that emit() is first called with a tuple of raw
-	 * arguments passed to xo::emit(), and an empty variadic argument list.
-	 * each iteration removes one item from the tuple and puts the
-	 * converted value at the end of the argument list.  eventually, the
-	 * version with an empty tuple<> is called, which forwards all the
-	 * converted arguments to xo_emit().
-	 */
+template<typename... Cs>
+void _emit(std::string_view format,
+	  std::tuple<>,
+	  Cs&&... converted) {
+	xo_emit(std::string(format).c_str(),
+		std::forward<Cs>(converted)...);
+}
 
-	template<typename... Cs>
-	void emit(std::string_view format,
-		  std::tuple<>,
-		  Cs&&... converted) {
-		xo_emit(std::string(format).c_str(),
-			std::forward<Cs>(converted)...);
-	}
+template<typename T, typename... Us, typename... Cs>
+requires std::same_as<std::string_view, std::remove_cvref_t<T>>
+void _emit(std::string_view, std::tuple<T, Us...> const &, Cs&&...);
 
-	template<typename T, typename... Us, typename... Cs>
-	requires std::same_as<std::string_view, std::remove_cvref_t<T>>
-	void emit(std::string_view, std::tuple<T, Us...> const &, Cs&&...);
+template<typename T, typename... Us, typename... Cs>
+requires std::same_as<std::string, std::remove_cvref_t<T>>
+void _emit(std::string_view, std::tuple<T, Us...> const &, Cs&&...);
 
-	template<typename T, typename... Us, typename... Cs>
-	requires std::same_as<std::string, std::remove_cvref_t<T>>
-	void emit(std::string_view, std::tuple<T, Us...> const &, Cs&&...);
+template<typename T, typename... Us, typename... Cs>
+requires (std::is_integral_v<std::remove_cvref_t<T>>
+	  || std::is_pointer_v<std::remove_cvref_t<T>>)
+void _emit(std::string_view, std::tuple<T, Us...> const &, Cs&&...);
 
-	template<typename T, typename... Us, typename... Cs>
-	requires (std::is_integral_v<std::remove_cvref_t<T>>
-	          || std::is_pointer_v<std::remove_cvref_t<T>>)
-	void emit(std::string_view, std::tuple<T, Us...> const &, Cs&&...);
+template<typename T, typename... Us, typename... Cs>
+requires std::same_as<std::string, std::remove_cvref_t<T>>
+void _emit(std::string_view format,
+	  std::tuple<T, Us...> const &unconverted,
+	  Cs&&... done)
+{
+	_emit(format, drop1(unconverted), std::forward<Cs>(done)...,
+	     std::get<0>(unconverted).c_str());
+}
 
-	template<typename T, typename... Us, typename... Cs>
-	requires std::same_as<std::string, std::remove_cvref_t<T>>
-	void emit(std::string_view format,
-		  std::tuple<T, Us...> const &unconverted,
-		  Cs&&... done)
-	{
-		emit(format, drop1(unconverted), std::forward<Cs>(done)...,
-		     std::get<0>(unconverted).c_str());
-	}
+template<typename T, typename... Us, typename... Cs>
+requires std::same_as<std::string_view, std::remove_cvref_t<T>>
+void _emit(std::string_view format,
+	  std::tuple<T, Us...> const &unconverted,
+	  Cs&&... done)
+{
+	_emit(format, drop1(unconverted), std::forward<Cs>(done)...,
+	     std::string(std::get<0>(unconverted)).c_str());
+}
 
-	template<typename T, typename... Us, typename... Cs>
-	requires std::same_as<std::string_view, std::remove_cvref_t<T>>
-	void emit(std::string_view format,
-		  std::tuple<T, Us...> const &unconverted,
-		  Cs&&... done)
-	{
-		emit(format, drop1(unconverted), std::forward<Cs>(done)...,
-		     std::string(std::get<0>(unconverted)).c_str());
-	}
-
-	template<typename T, typename... Us, typename... Cs>
-	requires (std::is_integral_v<std::remove_cvref_t<T>>
-	          || std::is_pointer_v<std::remove_cvref_t<T>>)
-	void emit(std::string_view format,
-		  std::tuple<T, Us...> const &unconverted,
-		  Cs&&... done)
-	{
-		emit(format, drop1(unconverted), std::forward<Cs>(done)...,
-		     std::get<0>(unconverted));
-	}
+template<typename T, typename... Us, typename... Cs>
+requires (std::is_integral_v<std::remove_cvref_t<T>>
+	  || std::is_pointer_v<std::remove_cvref_t<T>>)
+void _emit(std::string_view format,
+	  std::tuple<T, Us...> const &unconverted,
+	  Cs&&... done)
+{
+	_emit(format, drop1(unconverted), std::forward<Cs>(done)...,
+	     std::get<0>(unconverted));
 }
 
 export template<typename... Args>
 void emit(std::string_view format, Args&&... args) {
-	detail::emit(format, std::tuple<Args...>(std::forward<Args>(args)...));
-
+	_emit(format, std::tuple<Args...>(std::forward<Args>(args)...));
 }
 
-} // namespace xo
+} // namespace netd::xo

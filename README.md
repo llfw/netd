@@ -29,8 +29,16 @@ netd is currently in a pre-alpha state and doesn't do anything useful.
 ## Build
 
 ```
-# make depend all install
+# pkg install cmake-core ninja
+% mkdir build
+% cd build
+% cmake -G Ninja ..
+% ninja
+# ninja install
 ```
+
+Optionally, add `-DSANITIZE=ON` to the `cmake` command to enable Clang's
+sanitizers for development.
 
 ## Run
 

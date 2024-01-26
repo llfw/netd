@@ -54,10 +54,10 @@ import kq;
 import netlink;
 import netd.event;
 import task;
-import panic;
-import isam;
+import netd.panic;
+import netd.isam;
 import netd.rate;
-import uuid;
+import netd.uuid;
 import netd.error;
 
 module iface;

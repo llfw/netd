@@ -22,28 +22,44 @@
 
 module;
 
-#include	<cstdarg>
+/*
+ * the persistent database.
+ */
+
+#include	<sys/types.h>
+#include	<sys/socket.h>
+
+#include	<netinet/in.h>
+#include	<netinet/if_ether.h>
+
 #include	<string>
-#include	<format>
-#include	<print>
+#include	<expected>
+#include	<system_error>
 
-export module panic;
+import netd.uuid;
 
-namespace netd {
+export module db;
 
-[[noreturn]] auto _panic(std::string_view msg) -> void {
-	std::print(stderr, "panic: {}\n", msg);
-	std::fflush(stderr);
-	abort();
-}
+export namespace netd::db {
 
-/* log a message at the highest priority and immediately abort */
-export template<typename... Args>
-[[noreturn]] auto panic(std::format_string<Args...> fmt, Args&&... args)
-	-> void
-{
-	auto msg = std::format(fmt, std::forward<Args>(args)...);
-	_panic(msg);
-}
+/*
+ * a stored interface.  interfaces are identified primarily by UUID, and are
+ * matched to live interfaces using MAC address or name, depending on
+ * configuration.
+ */
 
-} // namespace netd
+struct pinterface {
+	uuid		pi_uuid;
+	std::string	pi_name;
+	std::string	pi_descr;
+	ether_addr	pi_ether;
+};
+
+// load the stored database from disk, replacing any existing configuration.
+auto load(void) -> std::expected<void, std::error_code>;
+
+// save the current database to disk.  this is usually done automatically after
+// any modification.
+auto save(void) -> std::expected<void, std::error_code>;
+
+} // export namespace netd::db

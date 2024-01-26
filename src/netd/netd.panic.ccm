@@ -22,36 +22,28 @@
 
 module;
 
-#include	<sys/uuid.h>
+#include	<cstdarg>
+#include	<string>
+#include	<format>
+#include	<print>
 
-#include	<functional>
-#include	<algorithm>
+export module netd.panic;
 
-export module uuid;
+namespace netd {
 
-export using ::uuid;
-
-/*
- * utilities for dealing with UUIDs.
- */
-
-export template<>
-struct std::hash<uuid> {
-	auto operator()(uuid const &s) const -> std::size_t {
-		// TODO: consider hashing node as well
-		return    std::hash<std::uint32_t>{}(s.time_low)
-			^ std::hash<std::uint16_t>{}(s.time_mid)
-			^ std::hash<std::uint16_t>{}(s.time_hi_and_version)
-			^ std::hash<std::uint8_t>{}(s.clock_seq_hi_and_reserved)
-			^ std::hash<std::uint8_t>{}(s.clock_seq_low);
-	}
-};
-
-export inline constexpr auto operator==(uuid const &a, uuid const &b) -> bool {
-	return	a.time_low == b.time_low
-		&& a.time_mid == b.time_mid
-		&& a.time_hi_and_version == b.time_hi_and_version
-		&& a.clock_seq_hi_and_reserved == b.clock_seq_hi_and_reserved
-		&& a.clock_seq_low == b.clock_seq_low
-		&& std::ranges::equal(a.node, b.node);
+[[noreturn]] auto _panic(std::string_view msg) -> void {
+	std::print(stderr, "panic: {}\n", msg);
+	std::fflush(stderr);
+	abort();
 }
+
+/* log a message at the highest priority and immediately abort */
+export template<typename... Args>
+[[noreturn]] auto panic(std::format_string<Args...> fmt, Args&&... args)
+	-> void
+{
+	auto msg = std::format(fmt, std::forward<Args>(args)...);
+	_panic(msg);
+}
+
+} // namespace netd

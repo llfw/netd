@@ -40,12 +40,12 @@ module;
 
 #include	"generator.hh"
 
-module network;
-
-import isam;
-import uuid;
+import netd.isam;
+import netd.uuid;
+import netd.panic;
 import log;
-import panic;
+
+module network;
 
 namespace netd::network {
 

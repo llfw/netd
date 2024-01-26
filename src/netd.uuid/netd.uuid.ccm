@@ -20,31 +20,38 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef	NETD_DB_H_INCLUDED
-#define	NETD_DB_H_INCLUDED
+module;
 
-/*
- * the persistent database.
- */
-
-#include	<sys/types.h>
 #include	<sys/uuid.h>
 
-#include	<netinet/if_ether.h>
+#include	<functional>
+#include	<algorithm>
 
-#include	<string>
+export module netd.uuid;
+
+export using ::uuid;
 
 /*
- * a stored interface.  interfaces are identified primarily by UUID, and are
- * matched to live interfaces using MAC address or name, depending on
- * configuration.
+ * utilities for dealing with UUIDs.
  */
 
-struct pinterface {
-	uuid		pi_uuid;
-	std::string	pi_name;
-	std::string	pi_descr;
-	ether_addr	pi_ether;
+export template<>
+struct std::hash<uuid> {
+	auto operator()(uuid const &s) const -> std::size_t {
+		// TODO: consider hashing node as well
+		return    std::hash<std::uint32_t>{}(s.time_low)
+			^ std::hash<std::uint16_t>{}(s.time_mid)
+			^ std::hash<std::uint16_t>{}(s.time_hi_and_version)
+			^ std::hash<std::uint8_t>{}(s.clock_seq_hi_and_reserved)
+			^ std::hash<std::uint8_t>{}(s.clock_seq_low);
+	}
 };
 
-#endif	/* !NETD_DB_H_INCLUDED */
+export inline constexpr auto operator==(uuid const &a, uuid const &b) -> bool {
+	return	a.time_low == b.time_low
+		&& a.time_mid == b.time_mid
+		&& a.time_hi_and_version == b.time_hi_and_version
+		&& a.clock_seq_hi_and_reserved == b.clock_seq_hi_and_reserved
+		&& a.clock_seq_low == b.clock_seq_low
+		&& std::ranges::equal(a.node, b.node);
+}

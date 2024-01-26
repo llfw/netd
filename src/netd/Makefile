@@ -12,6 +12,7 @@ SRCS	= netd.cc			\
 	  netlink.ccm netlink.cc	\
 	  log.ccm			\
 	  panic.ccm			\
+	  db.ccm			\
 	  task.ccm
 LIBS	= -lnv
 MODULES	= netd.isam nvl uuid netd.proto netd.error netd.rate netd.event

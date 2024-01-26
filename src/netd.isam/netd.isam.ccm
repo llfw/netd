@@ -32,7 +32,7 @@ module;
 
 import netd.event;
 
-export module isam;
+export module netd.isam;
 
 /*
  * a very simple in-memory ISAM-style container.  isam<T> is an std::list<T>
@@ -173,14 +173,14 @@ public:
 	index(isam<T> &isam, Func ext)
 	: _ext(std::move(ext)) {
 
-		_object_added = sub(isam.object_added,
+		_object_added = event::sub(isam.object_added,
 				   [&] (auto &, auto it) {
-					   _map.insert(_ext(*it), it);
+					   _map.insert({_ext(*it), it});
 				});
 
-		_object_removed = sub(isam.object_removed,
+		_object_removed = event::sub(isam.object_removed,
 				   [&] (auto &, auto it) {
-					   _map.remove(_map.find(_ext(*it)));
+					   _map.erase(_map.find(_ext(*it)));
 				});
 	}
 

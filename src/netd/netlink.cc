@@ -45,7 +45,7 @@ module;
 import log;
 import kq;
 import task;
-import panic;
+import netd.panic;
 import netd.error;
 
 module netlink;
