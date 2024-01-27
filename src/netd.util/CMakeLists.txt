@@ -21,8 +21,17 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
-add_library(netd.isam STATIC)
-target_compile_features(netd.isam PUBLIC cxx_std_23)
-target_sources(netd.isam PUBLIC
-	FILE_SET modules TYPE CXX_MODULES FILES netd.isam.ccm)
-target_link_libraries(netd.isam PUBLIC netd.event)
+add_library(netd.util STATIC)
+target_compile_features(netd.util PUBLIC cxx_std_23)
+target_sources(netd.util PUBLIC
+	FILE_SET modules TYPE CXX_MODULES FILES
+	netd.util.ccm
+	netd.util-error.ccm
+	netd.util-event.ccm
+	netd.util-isam.ccm
+	netd.util-guard.ccm
+	netd.util-panic.ccm
+	netd.util-print.ccm)
+
+set(THIS_DIR $<TARGET_FILE_DIR:netd.util>)
+set_property(GLOBAL APPEND_STRING PROPERTY _LIBTOOLING_EXTRA_ARGS "-fprebuilt-module-path=${THIS_DIR}/CMakeFiles/netd.util.dir ")

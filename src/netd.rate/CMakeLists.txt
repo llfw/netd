@@ -25,3 +25,6 @@ add_library(netd.rate STATIC)
 target_compile_features(netd.rate PUBLIC cxx_std_23)
 target_sources(netd.rate PUBLIC
 	FILE_SET modules TYPE CXX_MODULES FILES netd.rate.ccm)
+
+set(THIS_DIR $<TARGET_FILE_DIR:netd.rate>)
+set_property(GLOBAL APPEND_STRING PROPERTY _LIBTOOLING_EXTRA_ARGS "-fprebuilt-module-path=${THIS_DIR}/CMakeFiles/netd.rate.dir ")

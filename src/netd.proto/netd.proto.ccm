@@ -56,7 +56,7 @@ constexpr auto cn_maxnetnam = 16u;
  * protocol constants for nvlist keys.
  */
 
-constexpr std::string_view
+constexpr std::string_view const
 	cp_cmd = "CMD_NAME",
 
 	/*
@@ -88,9 +88,9 @@ constexpr std::string_view
  */
 
 /* INTF_LIST - request */
-constexpr std::string_view cc_getifs = "INTF_LIST",
+constexpr std::string_view const cc_getifs = "INTF_LIST",
 
-			   /* INTF_LIST - response */
+				 /* INTF_LIST - response */
 	cp_iface = "INTFS",		/* nvlist array */
 	cp_iface_name = "NAME",		/* string */
 	cp_iface_flags = "FLAGS",	/* string array */
@@ -113,7 +113,7 @@ constexpr uint64_t
  * network-related commands.
  */
 
-constexpr std::string_view
+constexpr std::string_view const
 	/* NET_LIST - request */
 	cc_getnets = "NET_LIST",
 

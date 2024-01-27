@@ -23,6 +23,9 @@
 
 add_library(netd.nvl STATIC)
 target_compile_features(netd.nvl PUBLIC cxx_std_23)
-target_link_libraries(netd.nvl PUBLIC nv)
+target_link_libraries(netd.nvl PUBLIC netd.util nv)
 target_sources(netd.nvl PUBLIC
 	FILE_SET modules TYPE CXX_MODULES FILES netd.nvl.ccm)
+
+set(THIS_DIR $<TARGET_FILE_DIR:netd.nvl>)
+set_property(GLOBAL APPEND_STRING PROPERTY _LIBTOOLING_EXTRA_ARGS "-fprebuilt-module-path=${THIS_DIR}/CMakeFiles/netd.nvl.dir ")

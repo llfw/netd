@@ -45,44 +45,29 @@ module;
 import log;
 import kq;
 import task;
-import netd.panic;
-import netd.error;
+import netd.util;
 
 module netlink;
 
 namespace netd::netlink {
 
 /* the netlink reader job */
-[[nodiscard]] auto reader(socket) -> jtask<void>;
-
-void hdl_rtm_newlink(struct nlmsghdr *nonnull);
-void hdl_rtm_dellink(struct nlmsghdr *nonnull);
-void hdl_rtm_newaddr(struct nlmsghdr *nonnull);
-void hdl_rtm_deladdr(struct nlmsghdr *nonnull);
-
-std::map<int, std::function<void(nlmsghdr *nonnull)>> handlers = {
-	{RTM_NEWLINK, hdl_rtm_newlink},
-	{RTM_DELLINK, hdl_rtm_dellink},
-	{RTM_NEWADDR, hdl_rtm_newaddr},
-	{RTM_DELADDR, hdl_rtm_deladdr},
-};
+[[nodiscard]] auto reader(socket server) -> jtask<void>;
 
 auto fetch_interfaces(void) -> task<std::expected<void, std::error_code>>;
 auto fetch_addresses(void) -> task<std::expected<void, std::error_code>>;
 
-auto socket::create(int flags) -> std::expected<socket, std::error_code>
+auto socket::create(int flags) noexcept
+	-> std::expected<socket, std::error_code>
 {
-	int	  optval;
-	socklen_t optlen;
-
 	socket sock;
 
 	sock._fd = ::socket(AF_NETLINK, SOCK_RAW | flags, NETLINK_ROUTE);
 	if (sock._fd == -1)
 		return std::unexpected(error::from_errno());
 
-	optval = 1;
-	optlen = sizeof(optval);
+	auto	 optval = 1;
+	unsigned optlen = sizeof(optval);
 	if (setsockopt(sock._fd, SOL_NETLINK, NETLINK_MSG_INFO, &optval, optlen)
 	    != 0)
 		return std::unexpected(error::from_errno());
@@ -90,7 +75,7 @@ auto socket::create(int flags) -> std::expected<socket, std::error_code>
 	return sock;
 }
 
-auto init(void) -> task<std::expected<void, std::error_code>>
+auto init() -> task<std::expected<void, std::error_code>>
 {
 	auto nls = socket::create(SOCK_NONBLOCK | SOCK_CLOEXEC);
 	if (!nls) {
@@ -150,16 +135,23 @@ auto socket::read(void) -> task<std::expected<nlmsghdr *, std::error_code>>
 	constexpr std::size_t blksz = 8192;
 
 	// if we already read a message, discard it from the buffer
-	if (_msgsize) {
+	if (_msgsize > 0) {
 		_buffer.erase(_buffer.begin(),
 			      _buffer.begin() + static_cast<ssize_t>(_msgsize));
 		_msgsize = 0;
 	}
 
-	auto hdr = reinterpret_cast<nlmsghdr *>(&_buffer[0]);
+	for (;;) {
+		// see if we have a message
+		if (!_buffer.empty()) {
+			auto hdr = reinterpret_cast<nlmsghdr *>(data(_buffer));
+			if (NLMSG_OK(hdr, static_cast<int>(_pending))) {
+				_msgsize = hdr->nlmsg_len;
+				co_return hdr;
+			}
+		}
 
-	// keep reading until we got a message
-	while (!NLMSG_OK(hdr, static_cast<int>(_pending))) {
+		// keep reading until we got a message
 		log::debug("netlink read: no message");
 
 		// make sure we have at least blksz bytes left in the buffer
@@ -173,18 +165,11 @@ auto socket::read(void) -> task<std::expected<nlmsghdr *, std::error_code>>
 		if (!r)
 			co_return std::unexpected(error::from_errno());
 
-		if (!*r)
-			// TODO: consider a better error code here
+		if (*r == 0)
 			co_return std::unexpected(error::from_errno(ENOMSG));
 
 		_pending += *r;
-		hdr = reinterpret_cast<nlmsghdr *>(&_buffer[0]);
 	}
-
-	log::debug("netlink read: returning");
-	_msgsize = hdr->nlmsg_len;
-
-	co_return hdr;
 }
 
 auto socket::send(nlmsghdr *nlmsg) -> task<std::expected<void, std::error_code>>
@@ -203,99 +188,8 @@ auto socket::send(nlmsghdr *nlmsg) -> task<std::expected<void, std::error_code>>
 	co_return {};
 }
 
-/*
- * reader: read and process new data from the netlink socket.
- */
-
-auto reader(socket nls) -> jtask<void>
-{
-	for (;;) {
-		auto msg = co_await nls.read();
-		if (!msg)
-			panic("netlink::reader: read error: {}",
-			      msg.error().message());
-
-		if (auto hdl = handlers.find((*msg)->nlmsg_type);
-		    hdl != handlers.end())
-			hdl->second(*msg);
-	}
-
-	co_return;
-}
-
-/*
- * ask the kernel to report all existing network interfaces.
- */
-auto fetch_interfaces(void) -> task<std::expected<void, std::error_code>>
-{
-	nlmsghdr hdr;
-
-	auto nls = socket::create(SOCK_CLOEXEC | SOCK_NONBLOCK);
-	if (!nls)
-		co_return std::unexpected(nls.error());
-
-	memset(&hdr, 0, sizeof(hdr));
-	hdr.nlmsg_len = sizeof(hdr);
-	hdr.nlmsg_type = RTM_GETLINK;
-	hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
-
-	if (auto ret = co_await nls->send(&hdr); !ret)
-		co_return std::unexpected(ret.error());
-
-	for (;;) {
-		log::debug("fetch_interfaces: reading");
-		auto ret = co_await nls->read();
-		if (!ret)
-			co_return std::unexpected(ret.error());
-		auto rhdr = *ret;
-
-		if (rhdr->nlmsg_type == NLMSG_DONE)
-			break;
-
-		assert(rhdr->nlmsg_type == RTM_NEWLINK);
-		hdl_rtm_newlink(rhdr);
-	}
-
-	co_return {};
-}
-
-/*
- * ask the kernel to report all existing addresses.
- */
-auto fetch_addresses(void) -> task<std::expected<void, std::error_code>>
-{
-	nlmsghdr hdr;
-
-	auto nls = socket::create(SOCK_CLOEXEC | SOCK_NONBLOCK);
-	if (!nls)
-		co_return std::unexpected(nls.error());
-
-	memset(&hdr, 0, sizeof(hdr));
-	hdr.nlmsg_len = sizeof(hdr);
-	hdr.nlmsg_type = RTM_GETADDR;
-	hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
-
-	if (auto ret = co_await nls->send(&hdr); !ret)
-		co_return std::unexpected(ret.error());
-
-	for (;;) {
-		auto ret = co_await nls->read();
-		if (!ret)
-			co_return std::unexpected(ret.error());
-		auto rhdr = *ret;
-
-		if (rhdr->nlmsg_type == NLMSG_DONE)
-			break;
-
-		assert(rhdr->nlmsg_type == RTM_NEWADDR);
-		hdl_rtm_newaddr(rhdr);
-	}
-
-	co_return {};
-}
-
 /* handle RTM_NEWLINK */
-void hdl_rtm_newlink(struct nlmsghdr *nlmsg)
+auto hdl_rtm_newlink(nlmsghdr *nlmsg) noexcept -> void
 {
 	ifinfomsg	 *ifinfo = static_cast<ifinfomsg *>(NLMSG_DATA(nlmsg));
 	rtattr		 *attrmsg = NULL;
@@ -344,7 +238,7 @@ void hdl_rtm_newlink(struct nlmsghdr *nlmsg)
 }
 
 /* handle RTM_DELLINK */
-void hdl_rtm_dellink(nlmsghdr *nlmsg)
+auto hdl_rtm_dellink(nlmsghdr *nlmsg) noexcept -> void
 {
 	ifinfomsg   *ifinfo = static_cast<ifinfomsg *>(NLMSG_DATA(nlmsg));
 	dellink_data msg;
@@ -354,7 +248,7 @@ void hdl_rtm_dellink(nlmsghdr *nlmsg)
 }
 
 /* handle RTM_NEWADDR */
-void hdl_rtm_newaddr(nlmsghdr *nlmsg)
+auto hdl_rtm_newaddr(nlmsghdr *nlmsg) noexcept -> void
 {
 	ifaddrmsg   *ifamsg;
 	rtattr	    *attrmsg;
@@ -386,7 +280,7 @@ void hdl_rtm_newaddr(nlmsghdr *nlmsg)
 }
 
 /* handle RTM_DELADDR */
-void hdl_rtm_deladdr(nlmsghdr *nlmsg)
+auto hdl_rtm_deladdr(nlmsghdr *nlmsg) noexcept -> void
 {
 	ifaddrmsg   *ifamsg;
 	rtattr	    *attrmsg;
@@ -415,6 +309,105 @@ void hdl_rtm_deladdr(nlmsghdr *nlmsg)
 	}
 
 	log::warning("received RTM_DELADDR without an IFA_ADDRESS");
+}
+
+/*
+ * ask the kernel to report all existing network interfaces.
+ */
+auto fetch_interfaces() -> task<std::expected<void, std::error_code>>
+{
+	nlmsghdr hdr;
+
+	auto nls = socket::create(SOCK_CLOEXEC | SOCK_NONBLOCK);
+	if (!nls)
+		co_return std::unexpected(nls.error());
+
+	memset(&hdr, 0, sizeof(hdr));
+	hdr.nlmsg_len = sizeof(hdr);
+	hdr.nlmsg_type = RTM_GETLINK;
+	hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
+
+	if (auto ret = co_await nls->send(&hdr); !ret)
+		co_return std::unexpected(ret.error());
+
+	for (;;) {
+		log::debug("fetch_interfaces: reading");
+		auto ret = co_await nls->read();
+		if (!ret)
+			co_return std::unexpected(ret.error());
+		auto rhdr = *ret;
+
+		if (rhdr->nlmsg_type == NLMSG_DONE)
+			break;
+
+		assert(rhdr->nlmsg_type == RTM_NEWLINK);
+		hdl_rtm_newlink(rhdr);
+	}
+
+	co_return {};
+}
+
+/*
+ * ask the kernel to report all existing addresses.
+ */
+auto fetch_addresses() -> task<std::expected<void, std::error_code>>
+{
+	nlmsghdr hdr;
+
+	auto nls = socket::create(SOCK_CLOEXEC | SOCK_NONBLOCK);
+	if (!nls)
+		co_return std::unexpected(nls.error());
+
+	memset(&hdr, 0, sizeof(hdr));
+	hdr.nlmsg_len = sizeof(hdr);
+	hdr.nlmsg_type = RTM_GETADDR;
+	hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
+
+	if (auto ret = co_await nls->send(&hdr); !ret)
+		co_return std::unexpected(ret.error());
+
+	for (;;) {
+		auto ret = co_await nls->read();
+		if (!ret)
+			co_return std::unexpected(ret.error());
+		auto rhdr = *ret;
+
+		if (rhdr->nlmsg_type == NLMSG_DONE)
+			break;
+
+		assert(rhdr->nlmsg_type == RTM_NEWADDR);
+		hdl_rtm_newaddr(rhdr);
+	}
+
+	co_return {};
+}
+
+/*
+ * reader: read and process new data from the netlink socket.
+ */
+
+auto reader(socket sock) -> jtask<void>
+{
+	static auto handlers =
+		std::map<int, std::function<void(nlmsghdr * msg)>>{
+			{RTM_NEWLINK, hdl_rtm_newlink},
+			{RTM_DELLINK, hdl_rtm_dellink},
+			{RTM_NEWADDR, hdl_rtm_newaddr},
+			{RTM_DELADDR, hdl_rtm_deladdr},
+	};
+
+	for (;;) {
+		auto msg = co_await sock.read();
+		if (!msg)
+			panic("netlink::reader: read error: {}",
+			      msg.error().message());
+
+		if (auto hdl = handlers.find((*msg)->nlmsg_type);
+		    hdl != handlers.end())
+			hdl->second(*msg);
+	}
+
+	co_return;
 }
 
 } // namespace netd::netlink

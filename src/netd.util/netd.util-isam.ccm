@@ -30,9 +30,10 @@ module;
 #include <unordered_map>
 #include <vector>
 
-import netd.event;
+export module netd.util:isam;
 
-export module netd.isam;
+import :event;
+import :panic;
 
 /*
  * a very simple in-memory ISAM-style container.  isam<T> is an std::list<T>
@@ -63,11 +64,13 @@ struct isam final {
 	using pointer = std::list<T>::pointer;
 	using const_pointer = std::list<T>::const_pointer;
 
-	isam() = default;
+	// TODO: make movable (requires event to be movable)
+	isam() noexcept = default;
 	isam(isam const &) = delete;
 	isam(isam &&) = delete;
 	auto operator=(isam const &) = delete;
 	auto operator=(isam &&) = delete;
+	~isam() noexcept = default;
 
 	// this event is raised after a new object is inserted
 	event::event<isam<T> &, iterator> object_added;
@@ -79,24 +82,30 @@ struct isam final {
 	 * insert()
 	 */
 
-	auto insert(T const &v) -> iterator
+	auto
+	insert(T const &v) noexcept(std::is_nothrow_copy_constructible_v<T>)
+		-> iterator
 	{
 		return insert(_list.end(), v);
 	}
 
-	auto insert(T &&v) -> iterator
+	auto insert(T &&v) noexcept(std::is_nothrow_move_constructible_v<T>)
+		-> iterator
 	{
 		return insert(_list.end(), std::move(v));
 	}
 
-	auto insert(iterator where, T const &v) -> iterator
+	auto insert(iterator where, T const &v) noexcept(
+		std::is_nothrow_copy_constructible_v<T>) -> iterator
 	{
 		auto it = _list.insert(where, v);
 		object_added.dispatch(*this, it);
 		return it;
 	}
 
-	auto insert(iterator where, T &&v) -> iterator
+	auto insert(iterator where,
+		    T &&v) noexcept(std::is_nothrow_move_constructible_v<T>)
+		-> iterator
 	{
 		auto it = _list.insert(where, std::move(v));
 		object_added.dispatch(*this, it);
@@ -108,18 +117,21 @@ struct isam final {
 	 */
 
 	template<typename... Args>
-	auto emplace(iterator where, Args &&...args) -> iterator
-	{
+	auto emplace(iterator where, Args &&...args) noexcept(
+		std::is_nothrow_constructible_v<T, Args...>) -> iterator
+	try {
 		auto it = _list.emplace(where, std::forward<Args>(args)...);
 		object_added.dispatch(*this, it);
 		return it;
+	} catch (std::bad_alloc const &) {
+		panic("out of memory");
 	}
 
 	/*
 	 * erase()
 	 */
 
-	auto erase(iterator item) -> void
+	auto erase(iterator item) noexcept -> void
 	{
 		object_removed.dispatch(*this, item);
 		_list.erase(item);
@@ -129,42 +141,42 @@ struct isam final {
 	 * begin(), end()
 	 */
 
-	auto begin()
+	[[nodiscard]] auto begin() noexcept
 	{
 		return _list.begin();
 	}
 
-	auto begin() const
+	[[nodiscard]] auto begin() const noexcept
 	{
 		return _list.begin();
 	}
 
-	auto end()
+	[[nodiscard]] auto end() noexcept
 	{
 		return _list.end();
 	}
 
-	auto end() const
+	[[nodiscard]] auto end() const noexcept
 	{
 		return _list.end();
 	}
 
-	auto rbegin()
+	[[nodiscard]] auto rbegin() noexcept
 	{
 		return _list.rbegin();
 	}
 
-	auto rbegin() const
+	[[nodiscard]] auto rbegin() const noexcept
 	{
 		return _list.rbegin();
 	}
 
-	auto rend()
+	[[nodiscard]] auto rend() noexcept
 	{
 		return _list.rend();
 	}
 
-	auto rend() const
+	[[nodiscard]] auto rend() const noexcept
 	{
 		return _list.rend();
 	}
@@ -184,66 +196,75 @@ private:
 
 public:
 	template<typename Func>
-	index(isam<T> &isam, Func ext) : _ext(std::move(ext))
+	index(isam<T> &isam,
+	      Func     ext) noexcept(std::is_nothrow_move_constructible_v<Func>)
+		: _ext(std::move(ext))
 	{
-
-		_object_added =
-			event::sub(isam.object_added, [&](auto &, auto it) {
-				_map.insert({_ext(*it), it});
+		_object_added = event::sub(
+			isam.object_added, [&](auto &, auto it) noexcept {
+				try {
+					_map.insert({_ext(*it), it});
+				} catch (std::bad_alloc const &) {
+					panic("out of memory");
+				}
 			});
 
-		_object_removed =
-			event::sub(isam.object_removed, [&](auto &, auto it) {
-				_map.erase(_map.find(_ext(*it)));
+		_object_removed = event::sub(
+			isam.object_removed, [&](auto &, auto it) noexcept {
+				try {
+					_map.erase(_map.find(_ext(*it)));
+				} catch (std::bad_alloc const &) {
+					panic("out of memory");
+				}
 			});
 	}
 
-	auto find(K const &key)
+	[[nodiscard]] auto find(K const &key) noexcept
 	{
 		return _map.find(key);
 	}
 
-	auto find(K const &key) const
+	[[nodiscard]] auto find(K const &key) const noexcept
 	{
 		return _map.find(key);
 	}
 
-	auto begin()
+	[[nodiscard]] auto begin() noexcept
 	{
 		return _map.begin();
 	}
 
-	auto begin() const
+	[[nodiscard]] auto begin() const noexcept
 	{
 		return _map.begin();
 	}
 
-	auto end()
+	[[nodiscard]] auto end() noexcept
 	{
 		return _map.end();
 	}
 
-	auto end() const
+	[[nodiscard]] auto end() const noexcept
 	{
 		return _map.end();
 	}
 
-	auto rbegin()
+	[[nodiscard]] auto rbegin() noexcept
 	{
 		return _map.rbegin();
 	}
 
-	auto rbegin() const
+	[[nodiscard]] auto rbegin() const noexcept
 	{
 		return _map.rbegin();
 	}
 
-	auto rend()
+	[[nodiscard]] auto rend() noexcept
 	{
 		return _map.rend();
 	}
 
-	auto rend() const
+	[[nodiscard]] auto rend() const noexcept
 	{
 		return _map.rend();
 	}

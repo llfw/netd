@@ -27,8 +27,10 @@ module;
 #include <sys/queue.h>
 #include <sys/socket.h>
 
-#include <netinet/if_ether.h>
+// clang-format off
 #include <netinet/in.h>
+#include <netinet/if_ether.h>
+// clang-format on
 
 #include <netlink/netlink.h>
 #include <netlink/route/common.h>
@@ -52,13 +54,10 @@ module;
 import log;
 import kq;
 import netlink;
-import netd.event;
 import task;
-import netd.panic;
-import netd.isam;
+import netd.util;
 import netd.rate;
 import netd.uuid;
-import netd.error;
 
 module iface;
 
@@ -148,7 +147,7 @@ auto make_handle(interface *intf) -> handle
 
 /* public fetch functions */
 
-auto _getbyname(std::string_view name)
+auto _getbyname(std::string_view name) noexcept
 	-> std::expected<interface *, std::error_code>
 {
 	if (auto intf = interfaces_byname.find(name);
@@ -158,7 +157,8 @@ auto _getbyname(std::string_view name)
 	return std::unexpected(error::from_errno(ESRCH));
 }
 
-auto getbyname(std::string_view name) -> std::expected<handle, std::error_code>
+auto getbyname(std::string_view name) noexcept
+	-> std::expected<handle, std::error_code>
 {
 	auto intf = _getbyname(name);
 	if (intf)
@@ -166,7 +166,8 @@ auto getbyname(std::string_view name) -> std::expected<handle, std::error_code>
 	return std::unexpected(intf.error());
 }
 
-auto _getbyindex(int index) -> std::expected<interface *, std::error_code>
+auto _getbyindex(int index) noexcept
+	-> std::expected<interface *, std::error_code>
 {
 	if (auto intf = interfaces_byindex.find(index);
 	    intf != interfaces_byindex.end())
@@ -175,7 +176,7 @@ auto _getbyindex(int index) -> std::expected<interface *, std::error_code>
 	return std::unexpected(error::from_errno(ESRCH));
 }
 
-auto getbyindex(int index) -> std::expected<handle, std::error_code>
+auto getbyindex(int index) noexcept -> std::expected<handle, std::error_code>
 {
 	auto intf = _getbyindex(index);
 	if (intf)
@@ -183,7 +184,7 @@ auto getbyindex(int index) -> std::expected<handle, std::error_code>
 	return std::unexpected(intf.error());
 }
 
-auto _getbyuuid(uuid id) -> std::expected<interface *, std::error_code>
+auto _getbyuuid(uuid id) noexcept -> std::expected<interface *, std::error_code>
 {
 	if (auto intf = interfaces_byuuid.find(id);
 	    intf != interfaces_byuuid.end())
@@ -192,7 +193,7 @@ auto _getbyuuid(uuid id) -> std::expected<interface *, std::error_code>
 	return std::unexpected(error::from_errno(ESRCH));
 }
 
-auto getbyuuid(uuid id) -> std::expected<handle, std::error_code>
+auto getbyuuid(uuid id) noexcept -> std::expected<handle, std::error_code>
 {
 	auto intf = _getbyuuid(id);
 	if (intf)
@@ -200,7 +201,7 @@ auto getbyuuid(uuid id) -> std::expected<handle, std::error_code>
 	return std::unexpected(intf.error());
 }
 
-auto remove(int index) -> void
+auto remove(int index) noexcept -> void
 {
 	auto intf = interfaces_byindex.find(index);
 	if (intf == interfaces_byindex.end())
@@ -208,7 +209,7 @@ auto remove(int index) -> void
 	interfaces.erase(intf->second);
 }
 
-auto info(handle const &hdl) -> ifinfo
+auto info(handle const &hdl) noexcept -> ifinfo
 {
 	auto &intf = getbyhandle(hdl);
 
@@ -224,7 +225,7 @@ auto info(handle const &hdl) -> ifinfo
 	return info;
 }
 
-auto getall(void) -> std::generator<handle>
+auto getall(void) noexcept -> std::generator<handle>
 {
 	for (auto &&intf: interfaces)
 		co_yield make_handle(&intf);
@@ -232,22 +233,22 @@ auto getall(void) -> std::generator<handle>
 
 /* netlink event handlers */
 
-void	   hdl_newlink(netlink::newlink_data);
+void	   hdl_newlink(netlink::newlink_data) noexcept;
 event::sub newlink_sub;
 
-void	   hdl_dellink(netlink::dellink_data);
+void	   hdl_dellink(netlink::dellink_data) noexcept;
 event::sub dellink_sub;
 
-void	   hdl_newaddr(netlink::newaddr_data);
+void	   hdl_newaddr(netlink::newaddr_data) noexcept;
 event::sub newaddr_sub;
 
-void	   hdl_deladdr(netlink::deladdr_data);
+void	   hdl_deladdr(netlink::deladdr_data) noexcept;
 event::sub deladdr_sub;
 
 /* stats update timer */
 auto stats(void) -> jtask<void>;
 
-auto init(void) -> int
+auto init(void) noexcept -> int
 {
 	newlink_sub = event::sub(netlink::evt_newlink, hdl_newlink);
 	dellink_sub = event::sub(netlink::evt_dellink, hdl_dellink);
@@ -258,7 +259,7 @@ auto init(void) -> int
 	return 0;
 }
 
-auto hdl_newlink(netlink::newlink_data msg) -> void
+auto hdl_newlink(netlink::newlink_data msg) noexcept -> void
 {
 	/* check for duplicate interfaces */
 	for (auto &&intf: interfaces) {
@@ -279,7 +280,7 @@ auto hdl_newlink(netlink::newlink_data msg) -> void
 	interfaces.insert(interfaces.end(), std::move(intf));
 }
 
-auto hdl_dellink(netlink::dellink_data msg) -> void
+auto hdl_dellink(netlink::dellink_data msg) noexcept -> void
 {
 	auto intf = getbyindex(msg.dl_ifindex);
 	if (!intf)
@@ -292,7 +293,7 @@ auto hdl_dellink(netlink::dellink_data msg) -> void
 	remove(iff.index);
 }
 
-ifaddr *ifaddr_new(int family, void *addr, int plen)
+ifaddr *ifaddr_new(int family, void *addr, int plen) noexcept
 {
 	ifaddr *ret = NULL;
 
@@ -303,33 +304,42 @@ ifaddr *ifaddr_new(int family, void *addr, int plen)
 		goto err;
 
 	switch (family) {
-	case AF_INET:
+	case AF_INET: {
 		if (plen > 32)
 			goto err;
 
+		in_addr addr4;
+		std::memcpy(&addr4, addr, sizeof(struct in_addr));
+		ret->ifa_addr = addr4;
 		ret->ifa_family = AF_INET;
-		memcpy(&ret->ifa_addr4, addr, sizeof(struct in_addr));
 		ret->ifa_plen = plen;
 		break;
+	}
 
-	case AF_INET6:
+	case AF_INET6: {
 		if (plen > 128)
 			goto err;
 
+		in6_addr addr6;
+		std::memcpy(&addr6, addr, sizeof(struct in6_addr));
+		ret->ifa_addr = addr6;
 		ret->ifa_family = AF_INET6;
-		memcpy(&ret->ifa_addr6, addr, sizeof(struct in6_addr));
 		ret->ifa_plen = plen;
 		break;
+	}
 
-	case AF_LINK:
+	case AF_LINK: {
 		/* Ethernet addresses don't have a mask */
 		if (plen != 48)
 			goto err;
 
+		ether_addr eaddr;
+		std::memcpy(&eaddr, addr, sizeof(struct ether_addr));
+		ret->ifa_addr = eaddr;
 		ret->ifa_family = AF_LINK;
-		memcpy(&ret->ifa_ether, addr, sizeof(struct ether_addr));
 		ret->ifa_plen = plen;
 		break;
+	}
 	}
 
 	return ret;
@@ -341,7 +351,7 @@ err:
 	return NULL;
 }
 
-auto hdl_newaddr(netlink::newaddr_data msg) -> void
+auto hdl_newaddr(netlink::newaddr_data msg) noexcept -> void
 {
 	auto ret = _getbyindex(msg.na_ifindex);
 	if (!ret)
@@ -358,7 +368,7 @@ auto hdl_newaddr(netlink::newaddr_data msg) -> void
 	intf->if_addrs.push_back(addr);
 }
 
-auto hdl_deladdr(netlink::deladdr_data msg) -> void
+auto hdl_deladdr(netlink::deladdr_data msg) noexcept -> void
 {
 	/* TODO: implement */
 
@@ -372,7 +382,7 @@ auto hdl_deladdr(netlink::deladdr_data msg) -> void
 
 /* calculate interface stats */
 
-static void ifdostats(interface &intf, rtnl_link_stats64 *ostats)
+void ifdostats(interface &intf, rtnl_link_stats64 *ostats) noexcept
 {
 	rtnl_link_stats64 stats;
 

@@ -21,9 +21,7 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
-add_subdirectory(netd.error)
-add_subdirectory(netd.event)
-add_subdirectory(netd.isam)
+add_subdirectory(netd.util)
 add_subdirectory(netd.proto)
 add_subdirectory(netd.rate)
 add_subdirectory(netd.nvl)

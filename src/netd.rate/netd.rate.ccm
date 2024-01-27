@@ -69,7 +69,8 @@ struct rate {
 
 	auto update(T value)
 	{
-		std::ranges::copy(std::span(_history).subspan(1), &_history[0]);
+		std::ranges::copy(std::span(_history).subspan(1),
+				  std::ranges::data(_history));
 
 		_history[nvalues - 1] =
 			sample{value, std::chrono::steady_clock::now()};
@@ -85,10 +86,8 @@ struct rate {
 
 		auto valid_samples =
 			_history | filter([&](auto const &sample) {
-				if (sample.when.time_since_epoch().count())
-					return true;
-
-				return false;
+				return sample.when.time_since_epoch().count()
+				     > 0;
 			});
 
 		auto nsamples =

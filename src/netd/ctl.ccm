@@ -29,6 +29,6 @@ export module ctl;
 
 namespace netd::ctl {
 
-export [[nodiscard]] auto init(void) -> std::expected<void, std::error_code>;
+export [[nodiscard]] auto init() -> std::expected<void, std::error_code>;
 
 } // namespace netd::ctl

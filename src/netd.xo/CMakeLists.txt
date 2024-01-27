@@ -26,3 +26,6 @@ target_compile_features(netd.xo PUBLIC cxx_std_23)
 target_link_libraries(netd.xo PUBLIC xo)
 target_sources(netd.xo PUBLIC
 	FILE_SET modules TYPE CXX_MODULES FILES netd.xo.ccm)
+
+set(THIS_DIR $<TARGET_FILE_DIR:netd.xo>)
+set_property(GLOBAL APPEND_STRING PROPERTY _LIBTOOLING_EXTRA_ARGS "-fprebuilt-module-path=${THIS_DIR}/CMakeFiles/netd.xo.dir ")

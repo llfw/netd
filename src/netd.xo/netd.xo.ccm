@@ -28,6 +28,7 @@ module;
 
 #include <string>
 #include <tuple>
+#include <utility>
 
 extern "C" { // TODO: file upstream bug
 #include <libxo/xo.h>
@@ -41,6 +42,13 @@ namespace netd::xo {
  * xo calls xo_finish() when it's destroyed.
  */
 export struct xo {
+	xo() = default;
+	xo(xo &&) = default;
+	xo(xo const &) = delete;
+
+	auto operator=(xo const &) -> xo & = delete;
+	auto operator=(xo &&) -> xo & = default;
+
 	~xo()
 	{
 		xo_finish();
@@ -57,15 +65,16 @@ export struct container {
 		xo_open_container(_name.c_str());
 	}
 
+	container(container &&) = default;
+	container(container const &) = delete;
+
+	auto operator=(container const &) -> container & = delete;
+	auto operator=(container &&) -> container & = default;
+
 	~container()
 	{
 		xo_close_container(_name.c_str());
 	}
-
-	container(container const &) = delete;
-	container(container &&) = delete;
-	auto operator=(container const &) -> container & = delete;
-	auto operator=(container &&) -> container & = delete;
 
 private:
 	std::string _name;
@@ -123,23 +132,31 @@ auto drop1(std::tuple<T, Rest...> const &tuple)
  */
 
 template<typename... Cs>
-void _emit(std::string_view format, std::tuple<>, Cs &&...converted)
+void _emit(std::string_view format,
+	   std::tuple<> /*unconverted*/,
+	   Cs &&...converted)
 {
 	xo_emit(std::string(format).c_str(), std::forward<Cs>(converted)...);
 }
 
 template<typename T, typename... Us, typename... Cs>
 	requires std::same_as<std::string_view, std::remove_cvref_t<T>>
-void _emit(std::string_view, std::tuple<T, Us...> const &, Cs &&...);
+void _emit(std::string_view	       format,
+	   std::tuple<T, Us...> const &unconverted,
+	   Cs &&...done);
 
 template<typename T, typename... Us, typename... Cs>
 	requires std::same_as<std::string, std::remove_cvref_t<T>>
-void _emit(std::string_view, std::tuple<T, Us...> const &, Cs &&...);
+void _emit(std::string_view	       format,
+	   std::tuple<T, Us...> const &unconverted,
+	   Cs &&...done);
 
 template<typename T, typename... Us, typename... Cs>
 	requires(std::is_integral_v<std::remove_cvref_t<T>>
 		 || std::is_pointer_v<std::remove_cvref_t<T>>)
-void _emit(std::string_view, std::tuple<T, Us...> const &, Cs &&...);
+void _emit(std::string_view	       format,
+	   std::tuple<T, Us...> const &unconverted,
+	   Cs &&...done);
 
 template<typename T, typename... Us, typename... Cs>
 	requires std::same_as<std::string, std::remove_cvref_t<T>>

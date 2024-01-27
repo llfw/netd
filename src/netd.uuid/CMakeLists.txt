@@ -25,3 +25,6 @@ add_library(netd.uuid STATIC)
 target_compile_features(netd.uuid PUBLIC cxx_std_23)
 target_sources(netd.uuid PUBLIC
 	FILE_SET modules TYPE CXX_MODULES FILES netd.uuid.ccm)
+
+set(THIS_DIR $<TARGET_FILE_DIR:netd.uuid>)
+set_property(GLOBAL APPEND_STRING PROPERTY _LIBTOOLING_EXTRA_ARGS "-fprebuilt-module-path=${THIS_DIR}/CMakeFiles/netd.uuid.dir ")

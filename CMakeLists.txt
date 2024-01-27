@@ -32,24 +32,30 @@ set(NETD_WARNFLAGS "\
 -Wimplicit-fallthrough\
 ")
 
-add_compile_options(
-"$<$<COMPILE_LANGUAGE:CXX>:-pedantic;-fPIE;-fstack-protector-strong>;\
-${NETD_WARNFLAGS}"
-)
-add_link_options("-pie")
+add_compile_options(${NETD_WARNFLAGS})
+add_compile_options("-pedantic;-fstack-protector-strong")
 
 option(SANITIZE "Enable clang sanitizers (ASAN, UBSAN)" OFF)
+option(TIDY "Enable clang-tidy" OFF)
+option(ANALYZE "Enable clang-tidy static analyser" OFF)
+option(PIE "Produce position-independent executables" ON)
+
+# PIE is not compatible with SANITIZE
+if(SANITIZE AND PIE)
+	message(FATAL_ERROR "SANITIZE and PIE cannot be enabled at the same time")
+endif()
+
+if(PIE)
+	add_link_options("-pie")
+	add_compile_options("-fPIE")
+endif()
 
 if(SANITIZE)
 	add_compile_options("-fsanitize=address;-fsanitize=undefined")
 	add_link_options("-fsanitize=address;-fsanitize=undefined")
 endif()
 
-# This doesn't work yet since clang-analyser doesn't seem to understand
-# modules.
 set(lint_dir ${CMAKE_BINARY_DIR}/lint)
-set(lint_scan_build_path scan-build)
-set(lint_reports_path ${CMAKE_BINARY_DIR}/lint_reports)
 
 add_custom_target(lint_prepare
     COMMAND ${CMAKE_COMMAND} -E rm -rf ${lint_dir}
@@ -58,18 +64,40 @@ add_custom_target(lint_prepare
 )
 
 add_custom_target(lint
-	COMMAND ${lint_scan_build_path} ${CMAKE_COMMAND} ${CMAKE_SOURCE_DIR}
-			-GNinja -DCMAKE_BUILD_TYPE=Debug
-	COMMAND ${lint_scan_build_path} --status-bugs -v -v
-		-o ${lint_reports_path}
-		${CMAKE_COMMAND} --build .
+	COMMAND ${CMAKE_COMMAND} ${CMAKE_SOURCE_DIR}
+		-DTIDY:ON -GNinja -DCMAKE_BUILD_TYPE=Debug
+	COMMAND ${CMAKE_COMMAND} --build .
 	WORKING_DIRECTORY ${lint_dir}
 )
 
 add_dependencies(lint lint_prepare)
 
-file(GLOB_RECURSE ALL_SOURCES *.cc *.ccm *.hh)
+# clang-format; adds a 'ninja format' target.
+file(GLOB_RECURSE ALL_SOURCES
+	${CMAKE_SOURCE_DIR}/*.cc
+	${CMAKE_SOURCE_DIR}/*.ccm
+	${CMAKE_SOURCE_DIR}/*.hh)
 add_custom_target(format COMMAND clang-format -i ${ALL_SOURCES})
+
+# clang-tidy
+if(ANALYZE)
+	set(_TIDY_EXTRA_ARGS "--checks=clang-static-analyzer-*;")
+else()
+	set(_TIDY_EXTRA_ARGS "")
+endif()
+
+if(TIDY)
+	set(CMAKE_CXX_CLANG_TIDY
+	  clang-tidy;
+	  -format-style='file';
+	  ${_TIDY_EXTRA_ARGS}
+	  --extra-arg-before=--config=${CMAKE_CURRENT_BINARY_DIR}/clang-tidy.opts
+	  -header-filter=^${CMAKE_SOURCE_DIR}.*;
+	)
+endif()
 
 include_directories(include)
 add_subdirectory(src)
+
+get_property(_LIBTOOLING_EXTRA_ARGS GLOBAL PROPERTY _LIBTOOLING_EXTRA_ARGS)
+file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/clang-tidy.opts CONTENT ${_LIBTOOLING_EXTRA_ARGS})

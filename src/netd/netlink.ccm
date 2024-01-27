@@ -39,7 +39,7 @@ module;
 
 #include "defs.hh"
 
-import netd.event;
+import netd.util;
 import task;
 
 export module netlink;
@@ -50,9 +50,9 @@ namespace netd::netlink {
  * a netlink socket which can read and write messages.
  */
 export struct socket {
-	socket() = default;
+	socket() noexcept = default;
 
-	socket(socket &&other)
+	socket(socket &&other) noexcept
 	{
 		*this = std::move(other);
 	}
@@ -60,7 +60,7 @@ export struct socket {
 	socket(socket const &) = delete;
 
 	auto operator=(socket const &) = delete;
-	auto operator=(socket &&other) -> socket &
+	auto operator=(socket &&other) noexcept -> socket &
 	{
 		if (this != &other) {
 			_fd = std::exchange(other._fd, -1);
@@ -72,17 +72,18 @@ export struct socket {
 		return *this;
 	}
 
-	~socket()
+	~socket() noexcept
 	{
 		if (_fd != -1)
 			::close(_fd);
 	}
 
 	// create a new netlink socket
-	static auto create(int flags) -> std::expected<socket, std::error_code>;
+	static auto create(int flags) noexcept
+		-> std::expected<socket, std::error_code>;
 
 	// read a single message from the socket
-	auto read(void) -> task<std::expected<nlmsghdr *, std::error_code>>;
+	auto read() -> task<std::expected<nlmsghdr *, std::error_code>>;
 
 	// send a message to the socket
 	auto send(nlmsghdr *msg) -> task<std::expected<void, std::error_code>>;
@@ -102,7 +103,7 @@ private:
 };
 
 /* initialise the netlink subsystem */
-export auto init(void) -> task<std::expected<void, std::error_code>>;
+export auto init() -> task<std::expected<void, std::error_code>>;
 
 /*
  * netlink events

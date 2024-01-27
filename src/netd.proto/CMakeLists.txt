@@ -25,3 +25,6 @@ add_library(netd.proto STATIC)
 target_compile_features(netd.proto PUBLIC cxx_std_23)
 target_sources(netd.proto PUBLIC
 	FILE_SET modules TYPE CXX_MODULES FILES netd.proto.ccm)
+
+set(THIS_DIR $<TARGET_FILE_DIR:netd.proto>)
+set_property(GLOBAL APPEND_STRING PROPERTY _LIBTOOLING_EXTRA_ARGS "-fprebuilt-module-path=${THIS_DIR}/CMakeFiles/netd.proto.dir ")

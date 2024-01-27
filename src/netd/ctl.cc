@@ -39,6 +39,7 @@ module;
 #include <cstring>
 #include <expected>
 #include <functional>
+#include <map>
 #include <unistd.h>
 
 #include <new>
@@ -52,9 +53,8 @@ import log;
 import kq;
 import iface;
 import task;
-import netd.panic;
+import netd.util;
 import netd.proto;
-import netd.error;
 
 namespace netd::ctl {
 
@@ -77,31 +77,25 @@ struct ctlclient {
 
 using cmdhandler = std::function<task<void>(ctlclient &, nvl const &)>;
 
-struct chandler {
-	std::string_view ch_cmd;
-	cmdhandler	 ch_handler;
-};
-
-[[nodiscard]] auto send_error(ctlclient &, std::string_view) -> task<void>;
-[[nodiscard]] auto send_success(ctlclient &, std::string_view = {})
+[[nodiscard]] auto send_error(ctlclient &client, std::string_view message)
 	-> task<void>;
-[[nodiscard]] auto send_syserr(ctlclient &, std::string_view) -> task<void>;
+[[nodiscard]] auto send_success(ctlclient	&client,
+				std::string_view message = {}) -> task<void>;
+[[nodiscard]] auto send_syserr(ctlclient &client, std::string_view message)
+	-> task<void>;
 
 /*
  * command handlers
  */
 
-[[nodiscard]] auto h_intf_list(ctlclient &, nvl const &) -> task<void>;
-[[nodiscard]] auto h_net_create(ctlclient &, nvl const &) -> task<void>;
-[[nodiscard]] auto h_net_delete(ctlclient &, nvl const &) -> task<void>;
-[[nodiscard]] auto h_net_list(ctlclient &, nvl const &) -> task<void>;
-
-std::vector<chandler> chandlers{
-	{proto::cc_getifs,  h_intf_list },
-	{proto::cc_getnets, h_net_list  },
-	{proto::cc_newnet,  h_net_create},
-	{proto::cc_delnet,  h_net_delete},
-};
+[[nodiscard]] auto h_intf_list(ctlclient &client, nvl const &request)
+	-> task<void>;
+[[nodiscard]] auto h_net_create(ctlclient &client, nvl const &request)
+	-> task<void>;
+[[nodiscard]] auto h_net_delete(ctlclient &client, nvl const &request)
+	-> task<void>;
+[[nodiscard]] auto h_net_list(ctlclient &client, nvl const &request)
+	-> task<void>;
 
 [[nodiscard]] auto listener(int fd) -> jtask<void>;
 [[nodiscard]] auto client_handler(std::unique_ptr<ctlclient>) -> jtask<void>;
@@ -218,15 +212,21 @@ auto clientcmd(ctlclient &client, nvl const &cmd) -> task<void>
 	auto cmdname = cmd.get_string(proto::cp_cmd);
 	log::debug("clientcmd: cmd={}", std::string(cmdname));
 
-	for (auto handler: chandlers) {
-		if (cmdname != handler.ch_cmd)
-			continue;
+	static std::map<std::string_view const, cmdhandler> const chandlers{
+		{{proto::cc_getifs, std::function(h_intf_list)},
+		 {proto::cc_getnets, std::function(h_net_list)},
+		 {proto::cc_newnet, std::function(h_net_create)},
+		 {proto::cc_delnet, std::function(h_net_delete)}}
+	 };
 
-		co_await handler.ch_handler(client, cmd);
+	if (auto handler = chandlers.find(cmdname);
+	    handler != chandlers.end()) {
+		co_await handler->second(client, cmd);
 		co_return;
 	}
 
 	/* TODO: unknown command, send an error */
+	co_return;
 }
 
 /*

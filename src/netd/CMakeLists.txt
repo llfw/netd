@@ -24,12 +24,17 @@
 add_executable(netd)
 target_compile_features(netd PUBLIC cxx_std_23)
 target_link_libraries(netd PUBLIC
-	netd.uuid netd.event netd.rate netd.isam netd.nvl netd.error
+	netd.uuid
+	netd.rate
+	netd.nvl
 	netd.proto)
 target_sources(netd PUBLIC
 	netd.cc ctl.cc db.cc iface.cc kq.cc netlink.cc network.cc)
 target_sources(netd PUBLIC
 	FILE_SET modules TYPE CXX_MODULES FILES
 		ctl.ccm db.ccm iface.ccm kq.ccm log.ccm netlink.ccm
-		network.ccm task.ccm netd.panic.ccm)
+		network.ccm task.ccm)
 install(TARGETS netd DESTINATION sbin)
+
+set(THIS_DIR $<TARGET_FILE_DIR:netd>)
+set_property(GLOBAL APPEND_STRING PROPERTY _LIBTOOLING_EXTRA_ARGS "-fprebuilt-module-path=${THIS_DIR}/CMakeFiles/netd.dir ")

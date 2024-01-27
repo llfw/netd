@@ -22,28 +22,45 @@
 
 module;
 
-#include <cstdarg>
-#include <format>
-#include <print>
+#include <cerrno>
 #include <string>
+#include <system_error>
+#include <vector>
 
-export module netd.panic;
+/*
+ * Miscellaneous error handling utilities.
+ */
 
-namespace netd {
+export module netd.util:error;
 
-[[noreturn]] auto _panic(std::string_view msg) -> void
+export namespace netd::error {
+
+// Create an std::error_code from an errno.
+auto from_errno(int err = errno)
 {
-	std::print(stderr, "panic: {}\n", msg);
-	std::fflush(stderr);
-	abort();
+	return std::make_error_code(std::errc(err));
 }
 
-/* log a message at the highest priority and immediately abort */
-export template<typename... Args>
-[[noreturn]] auto panic(std::format_string<Args...> fmt, Args &&...args) -> void
+// C++ version of strerror_r()
+// NOLINTNEXTLINE(bugprone-exception-escape)
+auto strerror(int err = errno) noexcept -> std::string
 {
-	auto msg = std::format(fmt, std::forward<Args>(args)...);
-	_panic(msg);
+	auto buf = std::vector<char>(128);
+
+	for (;;) {
+		auto r = strerror_r(err, data(buf), size(buf));
+
+		if (r == 0 || r == EINVAL)
+			return {std::from_range, buf};
+
+		if (r == ERANGE) {
+			buf.resize(buf.size() * 2u);
+			continue;
+		}
+
+		// should not be possible
+		abort();
+	}
 }
 
-} // namespace netd
+} // namespace netd::error

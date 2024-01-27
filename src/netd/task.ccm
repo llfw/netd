@@ -28,6 +28,7 @@ module;
 
 #include <coroutine>
 #include <functional>
+#include <type_traits>
 
 import log;
 
@@ -37,17 +38,20 @@ namespace netd {
 
 template<typename T>
 struct promise_base {
-	void return_value(T const &value)
+	void return_value(T const &value) noexcept(
+		std::is_nothrow_copy_assignable_v<T>)
 	{
 		result = value;
 	}
 
-	void return_value(T &&value)
+	void
+	return_value(T &&value) noexcept(std::is_nothrow_move_assignable_v<T>)
 	{
 		result = std::move(value);
 	}
 
-	auto await_resume() -> T
+	auto await_resume() noexcept(std::is_nothrow_move_constructible_v<T>)
+		-> T
 	{
 		return std::move(result);
 	}
@@ -57,8 +61,8 @@ struct promise_base {
 
 template<>
 struct promise_base<void> {
-	void return_void() {}
-	auto await_resume() -> void {}
+	void return_void() noexcept {}
+	auto await_resume() noexcept -> void {}
 };
 
 export template<typename T>
@@ -66,7 +70,7 @@ struct task {
 	struct promise_type : promise_base<T> {
 		std::coroutine_handle<> previous{};
 
-		auto get_return_object()
+		auto get_return_object() noexcept
 		{
 			return task(std::coroutine_handle<
 				    promise_type>::from_promise(*this));
@@ -85,8 +89,8 @@ struct task {
 
 			void await_resume() noexcept {}
 
-			auto
-			await_suspend(std::coroutine_handle<promise_type> h)
+			auto await_suspend(
+				std::coroutine_handle<promise_type> h) noexcept
 				-> std::coroutine_handle<>
 			{
 				auto &prev = h.promise().previous;
@@ -99,7 +103,6 @@ struct task {
 
 		auto final_suspend() noexcept -> final_awaiter
 		{
-			log::debug("promise: final_suspend");
 			return {};
 		}
 
@@ -113,49 +116,38 @@ struct task {
 
 	handle_type _handle;
 
-	explicit task(handle_type handle) : _handle(handle)
-	{
-		log::debug("task@{}: created", static_cast<void *>(this));
-	}
+	explicit task(handle_type handle) noexcept : _handle(handle) {}
 
 	task(task const &) = delete;
 	auto operator=(task const &) -> task & = delete;
 	auto operator=(task &&other) -> task & = delete;
 
-	task(task &&other) : _handle(std::exchange(other._handle, {}))
+	task(task &&other) noexcept : _handle(std::exchange(other._handle, {}))
 	{
-		log::debug("task@{}: moved", static_cast<void *>(this));
 	}
 
-	virtual ~task()
+	virtual ~task() noexcept
 	{
-		if (_handle) {
-			log::debug("task@{}: destroyed with handle",
-				   static_cast<void *>(this));
+		if (_handle)
 			_handle.destroy();
-		} else {
-			log::debug("task@{}: destroyed without handle",
-				   static_cast<void *>(this));
-		}
 	}
 
-	auto await_ready() -> bool
+	auto await_ready() noexcept -> bool
 	{
 		return false;
 	}
 
 	template<typename P>
-	auto await_suspend(std::coroutine_handle<P> h)
+	auto await_suspend(std::coroutine_handle<P> h) noexcept
 	{
-		log::debug("task@{}: await_suspend", static_cast<void *>(this));
 		auto &promise = _handle.promise();
 		promise.previous = h;
 		return _handle;
 	}
 
-	auto await_resume() -> T
+	auto await_resume() noexcept(std::is_nothrow_move_constructible_v<T>)
+		-> T
 	{
-		log::debug("task@{}: await_resume", static_cast<void *>(this));
 		return _handle.promise().await_resume();
 	}
 };
@@ -169,7 +161,7 @@ struct jtask {
 	struct promise_type : promise_base<T> {
 		std::coroutine_handle<> previous{};
 
-		auto get_return_object()
+		auto get_return_object() noexcept
 		{
 			return jtask(std::coroutine_handle<
 				     promise_type>::from_promise(*this));
@@ -188,8 +180,8 @@ struct jtask {
 
 			void await_resume() noexcept {}
 
-			auto
-			await_suspend(std::coroutine_handle<promise_type> h)
+			auto await_suspend(
+				std::coroutine_handle<promise_type> h) noexcept
 				-> std::coroutine_handle<>
 			{
 				auto &prev = h.promise().previous;
@@ -202,7 +194,6 @@ struct jtask {
 
 		auto final_suspend() noexcept -> final_awaiter
 		{
-			log::debug("promise: final_suspend");
 			if (on_final_suspend)
 				on_final_suspend();
 			return {};
@@ -220,55 +211,46 @@ struct jtask {
 
 	handle_type _handle;
 
-	explicit jtask(handle_type handle) : _handle(handle)
-	{
-		log::debug("jtask@{}: created", static_cast<void *>(this));
-	}
+	explicit jtask(handle_type handle) noexcept : _handle(handle) {}
 
 	jtask(jtask const &) = delete;
 	auto operator=(jtask const &) -> jtask & = delete;
 	auto operator=(jtask &&other) -> jtask & = delete;
 
-	jtask(jtask &&other) : _handle(std::exchange(other._handle, {}))
+	jtask(jtask &&other) noexcept
+		: _handle(std::exchange(other._handle, {}))
 	{
-		log::debug("jtask@{}: moved", static_cast<void *>(this));
 	}
 
-	virtual ~jtask()
+	virtual ~jtask() noexcept
 	{
-		if (_handle) {
-			log::debug("jtask@{}: destroyed with handle",
-				   static_cast<void *>(this));
+		if (_handle)
 			_handle.destroy();
-		} else {
-			log::debug("jtask@{}: destroyed without handle",
-				   static_cast<void *>(this));
-		}
 	}
 
-	auto on_final_suspend(std::function<void(void)> handler)
+	template<typename Func>
+	auto on_final_suspend(Func &&handler) noexcept
 	{
-		_handle.promise().on_final_suspend = std::move(handler);
+		_handle.promise().on_final_suspend =
+			std::forward<Func>(handler);
 	}
 
-	auto await_ready() -> bool
+	auto await_ready() noexcept -> bool
 	{
 		return false;
 	}
 
 	template<typename P>
-	auto await_suspend(std::coroutine_handle<P> h)
+	auto await_suspend(std::coroutine_handle<P> h) noexcept
 	{
-		log::debug("jtask@{}: await_suspend",
-			   static_cast<void *>(this));
 		auto &promise = _handle.promise();
 		promise.previous = h;
 		return _handle;
 	}
 
-	auto await_resume() -> T
+	auto await_resume() noexcept(std::is_nothrow_move_constructible_v<T>)
+		-> T
 	{
-		log::debug("jtask@{}: await_resume", static_cast<void *>(this));
 		return _handle.promise().await_resume();
 	}
 };

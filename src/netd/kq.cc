@@ -44,8 +44,7 @@ module;
 
 import log;
 import task;
-import netd.panic;
-import netd.error;
+import netd.util;
 
 module kq;
 
@@ -62,27 +61,34 @@ struct kqueue kq;
 /*
  * list of jobs to dispatch at the end of the event loop.
  */
-static std::vector<dispatchcb> jobs;
+std::vector<dispatchcb> jobs;
 
-void dispatch(dispatchcb handler)
+auto dispatch(dispatchcb handler) noexcept(
+	std::is_nothrow_move_constructible_v<dispatchcb>) -> void
 {
-	jobs.emplace_back(std::move(handler));
+	try {
+		jobs.emplace_back(std::move(handler));
+	} catch (std::bad_alloc const &) {
+		panic("kq: out of memory");
+	}
 }
 
-auto runjobs(void) -> void
+auto runjobs() noexcept -> void
 {
 	/* the job list can be appended to while we're iterating */
+	// NOLINTNEXTLINE(modernize-loop-convert)
 	for (std::size_t i = 0; i < jobs.size(); ++i)
 		jobs[i]();
 
 	jobs.clear();
 }
 
-auto init(void) -> std::expected<void, std::error_code>
+auto init() noexcept -> std::expected<void, std::error_code>
 {
-	time(&current_time);
+	(void)time(&current_time);
 
-	if ((kq.kq_fd = ::kqueuex(KQUEUE_CLOEXEC)) == -1)
+	kq.kq_fd = ::kqueuex(KQUEUE_CLOEXEC);
+	if (kq.kq_fd == -1)
 		return std::unexpected(error::from_errno());
 
 	return {};
@@ -92,42 +98,34 @@ auto init(void) -> std::expected<void, std::error_code>
  * make kevents awaitable
  */
 struct wait_kevent {
-	struct kevent &ev;
+	struct kevent *ev;
 
-	explicit wait_kevent(struct kevent &ev_) : ev(ev_) {}
+	explicit wait_kevent(struct kevent &ev_) noexcept : ev(&ev_) {}
 
-	auto await_ready() -> bool
+	auto await_ready() noexcept -> bool
 	{
-		log::debug("wait_kevent: await_ready() this={}",
-			   static_cast<void *>(this));
 		return false;
 	}
 
 	template<typename P>
-	auto await_suspend(std::coroutine_handle<P> coro) -> bool
+	auto await_suspend(std::coroutine_handle<P> coro) noexcept -> bool
 	{
 		/*
 		 * store the address of the kevent in ext[2].  this signals the
 		 * kq dispatcher that it should copy the kevent there, and then
 		 * resume the coro handle we place in ext[3].
 		 */
-		ev.ext[2] = reinterpret_cast<uintptr_t>(&ev);
-		ev.ext[3] = reinterpret_cast<uintptr_t>(coro.address());
-		log::debug("wait_kevent: await_suspend() this={}",
-			   static_cast<void *>(this));
+		ev->ext[2] = reinterpret_cast<uintptr_t>(ev);
+		ev->ext[3] = reinterpret_cast<uintptr_t>(coro.address());
 
-		if (kevent(kq.kq_fd, &ev, 1, nullptr, 0, nullptr) == -1)
+		if (kevent(kq.kq_fd, ev, 1, nullptr, 0, nullptr) == -1)
 			panic("wait_kevent: kevent() failed: {}",
-			      std::strerror(errno));
+			      error::strerror());
 
 		return true;
 	}
 
-	void await_resume()
-	{
-		log::debug("wait_kevent: await_resume() this={}",
-			   static_cast<void *>(this));
-	}
+	void await_resume() noexcept {}
 };
 
 auto operator co_await(struct kevent &ev)
@@ -135,15 +133,10 @@ auto operator co_await(struct kevent &ev)
 	return wait_kevent(ev);
 }
 
-auto run(void) -> std::expected<void, std::error_code>
+auto run() noexcept -> std::expected<void, std::error_code>
 {
-	struct kevent ev;
-	int	      n;
-
-	auto handle = [](struct kevent &ev) {
-		dispatch([=] {
-			log::debug("kq_dispatch_event: resuming");
-
+	auto handle = [](struct kevent &ev) noexcept {
+		dispatch([=] noexcept {
 			auto evaddr =
 				reinterpret_cast<struct kevent *>(ev.ext[2]);
 			std::memcpy(evaddr, &ev, sizeof(ev));
@@ -160,27 +153,23 @@ auto run(void) -> std::expected<void, std::error_code>
 	// run any jobs that were added before we started
 	runjobs();
 
+	struct kevent ev {};
+	auto	      n = int{};
 	while ((n = kevent(kq.kq_fd, NULL, 0, &ev, 1, NULL)) != -1) {
-		time(&current_time);
+		(void)time(&current_time);
 
-		log::debug("kqrun: got event");
-
-		if (n) {
-			if (ev.ext[2])
-				handle(ev);
-			else
+		if (n > 0) {
+			if (ev.ext[2] == 0)
 				panic("kq_dispatch_event: unexpected event");
+			handle(ev);
 		}
 
 		/* handle the kqdispatch() queue */
-		log::debug("kqrun: running jobs");
 		runjobs();
-
-		log::debug("kqrun: sleeping");
 	}
 
-	log::fatal("kqrun: kqueue failed: {}", strerror(errno));
-	return std::unexpected(std::make_error_code(std::errc(errno)));
+	log::fatal("kqrun: kqueue failed: {}", error::strerror(errno));
+	return std::unexpected(error::from_errno());
 }
 
 /******************************************************************************
@@ -189,24 +178,14 @@ auto run(void) -> std::expected<void, std::error_code>
  *
  */
 
-auto run_task(jtask<void> &&tsk) -> void
+auto run_task(jtask<void> &&tsk) noexcept -> void
 {
 	auto tsk_ = new (std::nothrow) jtask(std::move(tsk));
-	log::debug("run_task: start, task={}", static_cast<void *>(tsk_));
 
-	tsk_->on_final_suspend([=] {
-		dispatch([=] {
-			log::debug("run_task: task@{} is finished",
-				   static_cast<void *>(tsk_));
-			delete tsk_;
-		});
-	});
+	tsk_->on_final_suspend(
+		[=] { dispatch([=] noexcept { delete tsk_; }); });
 
-	dispatch([=] {
-		log::debug("run_task: dispatched, task={}",
-			   static_cast<void *>(tsk_));
-		tsk_->_handle.resume();
-	});
+	dispatch([=] noexcept { tsk_->_handle.resume(); });
 }
 
 auto wait_readable(int fd) -> task<void>
@@ -284,7 +263,7 @@ auto write(int fd, std::span<std::byte const> buf)
 	-> task<std::expected<std::size_t, std::error_code>>
 {
 	assert(fd >= 0);
-	assert(buf.size() > 0);
+	assert(!buf.empty());
 
 	for (;;) {
 		auto n = ::write(fd, buf.data(), buf.size());
@@ -302,34 +281,30 @@ auto write(int fd, std::span<std::byte const> buf)
 auto recvmsg(int fd, std::span<std::byte> buf)
 	-> task<std::expected<std::size_t, std::error_code>>
 {
-	log::debug("kq::recvmsg: begin");
-
 	// the remaining buffer we can read into
 	auto bufleft = buf;
 
 	// try a single read from the fd.
-	auto recv1 = [&](auto &msg) {
+	auto recv1 = [&](msghdr *msg) {
 		auto iov = iovec{bufleft.data(), bufleft.size()};
 
-		msg.msg_iov = &iov;
-		msg.msg_iovlen = 1;
+		msg->msg_iov = &iov;
+		msg->msg_iovlen = 1;
 
 		// wait for some data to arrive
-		auto n = ::recvmsg(fd, &msg, 0);
-		log::debug("kq::recvmsg: read {} errno={}", n,
-			   errno ? "-" : std::strerror(errno));
+		auto n = ::recvmsg(fd, msg, 0);
 		return n;
 	};
 
 	/* read until we get either MSG_EOR or run out of buffer space */
 	for (;;) {
-		if (bufleft.size() == 0)
+		if (bufleft.empty())
 			// out of space
 			co_return std::unexpected(error::from_errno(ENOSPC));
 
 		auto msg = msghdr{};
 
-		switch (auto n = recv1(msg)) {
+		switch (auto n = recv1(&msg)) {
 		case 0:
 			// end of file
 			co_return 0u;
@@ -338,17 +313,14 @@ auto recvmsg(int fd, std::span<std::byte> buf)
 			if (errno != EAGAIN)
 				co_return std::unexpected(error::from_errno());
 
-			log::debug("kq::recvmsg: waiting for fd"
-				   " to be readable");
 			co_await wait_readable(fd);
-			log::debug("kq::recvmsg: fd is readable");
 			break;
 
 		default:
 			// we read some data, adjust the remaining buffer space
 			bufleft = bufleft.subspan(static_cast<std::size_t>(n));
 
-			if (msg.msg_flags & MSG_EOR)
+			if ((msg.msg_flags & MSG_EOR) == MSG_EOR)
 				// we read an entire message
 				co_return buf.size() - bufleft.size();
 			break;

@@ -22,36 +22,48 @@
 
 module;
 
-#include <expected>
-#include <system_error>
+#include <sys/uio.h>
 
-import network;
-import netd.nvl;
-import netd.util;
+#include <cstdarg>
+#include <format>
+#include <print>
+#include <string>
+#include <unistd.h>
 
-module db;
+using namespace std::literals;
 
-namespace netd::db {
+export module netd.util:panic;
 
-auto save() noexcept -> std::expected<void, std::error_code>
+/*
+ * panic: write out a message, then abort the program.
+ */
+namespace netd {
+
+[[noreturn]] auto _panic(std::string_view const &msg) noexcept -> void
 {
-	nvl state;
-
-	auto serialise_network = [&](auto &hdl) {
-		auto net = info(hdl);
-		if (!net)
-			panic("db::save: network::info: {}",
-			      net.error().message());
-		nvl data;
-
-		data.add_string("name", net->name);
-		return data;
+	std::array<::iovec, 2> vecs = {
+		::iovec{const_cast<char *>(data(msg)), size(msg)},
+		::iovec{const_cast<char *>("\n"),	  1	   },
 	};
-
-	for (auto &&hdl: network::findall())
-		state.append_nvlist_array("networks", serialise_network(hdl));
-
-	return {};
+	(void)::writev(STDERR_FILENO, data(vecs), size(vecs));
+	std::abort();
 }
 
-} // namespace netd::db
+/* log a message at the highest priority and immediately abort */
+export template<typename... Args>
+[[noreturn]] auto panic(std::format_string<Args...> fmt,
+			Args &&...args) noexcept -> void
+{
+	try {
+		auto msg = std::vformat(
+			fmt.get(),
+			std::make_format_args(std::forward<Args>(args)...));
+		_panic(msg);
+	} catch (...) {
+		constexpr auto error = "panic: <unable to format message>\n"sv;
+		(void)::write(STDERR_FILENO, data(error), size(error));
+		std::abort();
+	}
+}
+
+} // namespace netd

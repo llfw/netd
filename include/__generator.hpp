@@ -1,3 +1,6 @@
+// don't lint this file, as it's not part of netd.
+// NOLINTBEGIN
+
 #ifndef __STD_GENERATOR_INCLUDED
 #define __STD_GENERATOR_INCLUDED
 ///////////////////////////////////////////////////////////////////////////////
@@ -803,3 +806,5 @@ constexpr inline bool enable_view<generator<_T, _U, _Alloc>> = true;
 } // namespace std
 
 #endif // __STD_GENERATOR_INCLUDED
+
+// NOLINTEND

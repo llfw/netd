@@ -1,0 +1,46 @@
+WarningsAsErrors: '*'
+
+#
+# misc-include-cleaner doesn't understand modules
+#
+# readability-redundant-declaration generates spurious errors from headers:
+# error: redundant 'operator delete' declaration [readability-redundant-declaration,-warnings-as-errors]
+# /usr/include/c++/v1/new:215:36: note: previously declared here
+#
+# misc-no-recursion generates generally unhelpful warnings.
+
+Checks: >
+  -*,
+  bugprone-*,
+  cert-*,
+  concurrency-*,
+  cppcoreguidelines-*,
+    -cppcoreguidelines-pro-type-const-cast,
+    -cppcoreguidelines-pro-type-reinterpret-cast,
+    -cppcoreguidelines-pro-type-vararg,
+    -cppcoreguidelines-pro-type-union-access,
+    -cppcoreguidelines-pro-bounds-*,
+    -cppcoreguidelines-non-private-member-variables-in-classes,
+    -cppcoreguidelines-avoid-non-const-global-variables,
+    -cppcoreguidelines-owning-memory,
+    -cppcoreguidelines-avoid-magic-numbers,
+  misc-*,
+    -misc-non-private-member-variables-in-classes,
+    -misc-include-cleaner,
+    -misc-no-recursion,
+  modernize-*,
+    -modernize-avoid-c-arrays,
+  performance-*,
+    -performance-no-int-to-ptr,
+  portability-*,
+  readability-*,
+    -readability-magic-numbers,
+    -readability-braces-around-statements,
+    -readability-uppercase-literal-suffix,
+    -readability-convert-member-functions-to-static,
+    -readability-make-member-function-const,
+    -readability-function-cognitive-complexity,
+    -readability-qualified-auto,
+    -readability-isolate-declaration,
+    -readability-identifier-length,
+    -readability-redundant-declaration,

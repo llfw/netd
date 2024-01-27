@@ -32,7 +32,7 @@ module;
 #include "generator.hh"
 
 import netd.uuid;
-import netd.event;
+import netd.util;
 
 export module network;
 
@@ -58,7 +58,7 @@ struct handle {
  */
 
 struct netinfo {
-	uuid		 id;
+	uuid		 id{};
 	std::string_view name;
 };
 
@@ -74,7 +74,7 @@ inline event::event<netinfo> net_removed;
 inline event::event<netinfo> net_changes;
 
 // TODO: remove std::expected here as this should never fail
-auto info(handle const &) -> std::expected<netinfo, std::error_code>;
+auto info(handle const &network) -> std::expected<netinfo, std::error_code>;
 
 /*
  * create a new network and add it to the configuration store.
@@ -88,6 +88,6 @@ auto find(std::string_view name) -> std::expected<handle, std::error_code>;
 auto findall() -> std::generator<handle>;
 
 /* delete a network.  all configuration will be removed. */
-auto remove(handle const &) -> void;
+auto remove(handle const &network) -> void;
 
 } // namespace netd::network

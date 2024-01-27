@@ -29,8 +29,11 @@ module;
 
 #include <functional>
 #include <set>
+#include <type_traits>
 
-export module netd.event;
+export module netd.util:event;
+
+import :panic;
 
 export namespace netd::event {
 
@@ -38,19 +41,26 @@ export namespace netd::event {
 // function.
 template<typename... Args>
 struct event final {
-	event() = default;
+	event() noexcept = default;
 
+	// TODO: update our address in subs if we're moved.  for now, event
+	// can't be movable because subs hold it by reference.
 	event(event const &) = delete;
 	event(event &&) = delete;
 	auto operator=(event const &) -> event & = delete;
 	auto operator=(event &&) -> event & = delete;
+	~event() = default;
 
 	using handler = std::function<void(Args...)>;
 
-	auto dispatch(Args... args)
-	{
+	auto dispatch(Args... args) noexcept
+	try {
 		for (auto &&handler: _handlers)
 			(*handler)(std::forward<Args>(args)...);
+	} catch (std::exception const &exc) {
+		panic("event dispatch: unexpected exception {}", exc.what());
+	} catch (...) {
+		abort();
 	}
 
 private:
@@ -60,18 +70,21 @@ private:
 
 // a subscription to an event.
 struct sub final {
-	sub() = default;
+	sub() noexcept = default;
 
-	sub(sub &&) = default;
-	auto operator=(sub &&) -> sub & = default;
+	sub(sub &&) noexcept = default;
+	auto operator=(sub &&) noexcept -> sub & = default;
 
 	sub(sub const &) = delete;
 	auto operator=(sub const &) -> sub & = delete;
 
+	~sub() noexcept = default;
+
 	template<typename... Args>
 	sub(event<Args...> &ev, event<Args...>::handler handler)
-		: _impl(new impl<Args...>(ev, std::move(handler)))
-	{
+	try : _impl(std::make_unique<impl<Args...>>(ev, std::move(handler))) {
+	} catch (std::bad_alloc const &e) {
+		panic("out of memory");
 	}
 
 	struct impl_base {
@@ -80,18 +93,20 @@ struct sub final {
 		auto operator=(impl_base const &) -> impl_base & = delete;
 		auto operator=(impl_base const &&) -> impl_base & = delete;
 
-		virtual ~impl_base() {}
+		virtual ~impl_base() noexcept = default;
 
 	protected:
-		impl_base() = default;
+		impl_base() noexcept = default;
 	};
 
 	template<typename... Args>
 	struct impl final : impl_base {
-		impl(event<Args...> &ev, event<Args...>::handler handler)
-			: _ev(ev), _handler(std::move(handler))
+		impl(event<Args...> &ev, event<Args...>::handler handler) noexcept(
+			std::is_nothrow_move_constructible_v<
+				typename event<Args...>::handler>)
+			: _ev(&ev), _handler(std::move(handler))
 		{
-			_ev._handlers.insert(&_handler);
+			_ev->_handlers.insert(&_handler);
 		}
 
 		impl(impl const &) = delete;
@@ -99,14 +114,14 @@ struct sub final {
 		auto operator=(impl const &) -> impl & = delete;
 		auto operator=(impl const &&) -> impl & = delete;
 
-		~impl()
+		~impl() noexcept override
 		{
-			auto it = _ev._handlers.find(&_handler);
-			_ev._handlers.erase(it);
+			auto it = _ev->_handlers.find(&_handler);
+			_ev->_handlers.erase(it);
 		}
 
 	private:
-		event<Args...>	       &_ev;
+		event<Args...>	       *_ev;
 		event<Args...>::handler _handler;
 	};
 

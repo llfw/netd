@@ -29,12 +29,13 @@ module;
 #include <cassert>
 #include <chrono>
 #include <format>
-#include <print>
 #include <string>
 
 #include <syslog.h>
 
 #include "defs.hh"
+
+import netd.util;
 
 export module log;
 
@@ -67,54 +68,62 @@ struct loglevel {
 	int		 ll_syslog;
 };
 
-loglevel loglevels[] = {
-	{.ll_name = "debug",   .ll_syslog = LOG_DEBUG  },
-	{.ll_name = "info",    .ll_syslog = LOG_INFO	 },
-	{.ll_name = "warning", .ll_syslog = LOG_WARNING},
-	{.ll_name = "error",   .ll_syslog = LOG_ERR	 },
-	{.ll_name = "fatal",   .ll_syslog = LOG_CRIT	  },
+std::array loglevels{
+	loglevel{.ll_name = "debug"sv,   .ll_syslog = LOG_DEBUG  },
+	loglevel{.ll_name = "info"sv,    .ll_syslog = LOG_INFO   },
+	loglevel{.ll_name = "warning"sv, .ll_syslog = LOG_WARNING},
+	loglevel{.ll_name = "error"sv,   .ll_syslog = LOG_ERR	   },
+	loglevel{.ll_name = "fatal"sv,   .ll_syslog = LOG_CRIT   },
 };
 
 // log a message to the console (stderr)
-auto log_console(loglevel level, std::string_view message) -> void
+auto log_console(loglevel level, std::string_view message) noexcept -> void
 {
-	time_t	  now;
-	struct tm tm;
-	char	  tmbuf[64] = {};
+	auto const	     now = std::time(nullptr);
+	struct tm	     tm {};
+	std::array<char, 64> tmbuf{};
 
-	std::time(&now);
 	localtime_r(&now, &tm);
-	strftime(tmbuf, sizeof(tmbuf), "%Y-%m-%d %H:%M:%S %z", &tm);
+	(void)std::strftime(data(tmbuf), tmbuf.size(), "%Y-%m-%d %H:%M:%S %z",
+			    &tm);
 
-	std::print(stderr, "{} [{}] {}\n", tmbuf, level.ll_name, message);
+	(void)print(stderr, "{} [{}] {}\n", data(tmbuf), level.ll_name,
+		    message);
 }
 
 // log a message to syslog
-auto log_syslog(loglevel level, std::string_view message) -> void
+auto log_syslog(loglevel level, std::string_view message) noexcept -> void
 {
 	::syslog(level.ll_syslog, "%s", std::string(message).c_str());
 }
 
 // log a message based on the current destination settings
-auto log_message(severity sev, std::string_view message) -> void
+auto log_message(severity sev, std::string_view message) noexcept -> void
 {
-	auto &level = loglevels[static_cast<int>(sev)];
+	auto &level = loglevels[static_cast<std::size_t>(sev)];
 
-	if (logdest & syslog)
+	if ((logdest & syslog) != 0)
 		log_syslog(level, message);
 
-	if (logdest & console)
+	if ((logdest & console) != 0)
 		log_console(level, message);
 }
 
 template<severity sev>
 struct sev_log {
 	template<typename... Args>
-	auto operator()(std::format_string<Args...> fmt, Args &&...args) const
-		-> void
+	auto operator()(std::format_string<Args...> fmt,
+			Args &&...args) const noexcept -> void
 	{
-		auto msg = std::format(fmt, std::forward<Args>(args)...);
-		log_message(sev, msg);
+		try {
+			auto msg =
+				std::format(fmt, std::forward<Args>(args)...);
+			log_message(sev, msg);
+		} catch (std::bad_alloc const &) {
+			panic("log: out of memory");
+		} catch (...) {
+			panic("log:: unexpected exception");
+		}
 	}
 };
 
@@ -126,18 +135,18 @@ export constexpr auto info = sev_log<severity::info>();
 export constexpr auto debug = sev_log<severity::debug>();
 
 /* get or set the log destination */
-auto getdest(void) -> unsigned
+auto getdest() noexcept -> unsigned
 {
 	return logdest;
 }
 
-auto setdest(unsigned newdest) -> void
+auto setdest(unsigned newdest) noexcept -> void
 {
 	assert((newdest & ~destmask) == 0u);
 
-	if ((newdest & syslog) && !(logdest & syslog))
+	if (((newdest & syslog) != 0) && ((logdest & syslog) == 0))
 		openlog("dlctld", LOG_CONS | LOG_NDELAY | LOG_PID, LOG_DAEMON);
-	else if (!(newdest & syslog) && (logdest & syslog))
+	else if (((newdest & syslog) == 0) && ((logdest & syslog) != 0))
 		closelog();
 
 	logdest = newdest;

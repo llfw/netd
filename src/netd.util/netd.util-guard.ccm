@@ -22,36 +22,37 @@
 
 module;
 
-#include <expected>
-#include <system_error>
+/*
+ * a guard object runs the given lambda when it's destroyed.
+ */
 
-import network;
-import netd.nvl;
-import netd.util;
+export module netd.util:guard;
 
-module db;
+export namespace netd {
 
-namespace netd::db {
+template<typename Func>
+struct guard {
+	guard(Func &func) : _func(&func) {}
 
-auto save() noexcept -> std::expected<void, std::error_code>
-{
-	nvl state;
+	guard(guard const &) = delete;
+	guard(guard &&) = delete;
+	auto operator=(guard const &) = delete;
+	auto operator=(guard &&) = delete;
 
-	auto serialise_network = [&](auto &hdl) {
-		auto net = info(hdl);
-		if (!net)
-			panic("db::save: network::info: {}",
-			      net.error().message());
-		nvl data;
+	~guard()
+	{
+		if (_enabled)
+			(*_func)();
+	}
 
-		data.add_string("name", net->name);
-		return data;
-	};
+	auto cancel() -> void
+	{
+		_enabled = false;
+	}
 
-	for (auto &&hdl: network::findall())
-		state.append_nvlist_array("networks", serialise_network(hdl));
+private:
+	bool  _enabled = true;
+	Func *_func;
+};
 
-	return {};
-}
-
-} // namespace netd::db
+} // namespace netd

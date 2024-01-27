@@ -22,21 +22,28 @@
 
 module;
 
-#include <cerrno>
+#include <cstdio>
+#include <expected>
+#include <print>
 #include <system_error>
 
-/*
- * Miscellaneous error handling utilities.
- */
+export module netd.util:print;
 
-export module netd.error;
+export namespace netd {
 
-export namespace netd::error {
-
-// Create an std::error_code from an errno.
-auto from_errno(int err = errno)
-{
-	return std::make_error_code(std::errc(err));
+// noexcept version of std::print.
+template<typename... Args>
+[[nodiscard]] auto print(std::FILE		    *stream,
+			 std::format_string<Args...> fmt,
+			 Args &&...args) noexcept
+	-> std::expected<void, std::error_code>
+try {
+	std::print(stream, std::move(fmt), std::forward<Args>(args)...);
+	return {};
+} catch (std::system_error const &exc) {
+	return std::unexpected(exc.code());
+} catch (...) {
+	abort();
 }
 
-} // namespace netd::error
+} // namespace netd

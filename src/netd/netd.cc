@@ -39,28 +39,31 @@ import kq;
 import iface;
 import netlink;
 import task;
+import netd.util;
 
 namespace netd {
 
 auto start() -> jtask<void>
 {
+	// TODO: remove use of std::exit here
+
 	/*
 	 * iface has to be initialised before netlink so it can receive
 	 * netlink's boot-time newlink/newaddr messages.
 	 */
 	if (iface::init() == -1) {
-		log::fatal("iface init failed: {}", strerror(errno));
-		std::exit(1);
+		log::fatal("iface init failed: {}", error::strerror());
+		std::exit(1); // NOLINT
 	}
 
 	if (auto ret = co_await netlink::init(); !ret) {
 		log::fatal("netlink init failed: {}", ret.error().message());
-		std::exit(1);
+		std::exit(1); // NOLINT
 	}
 
 	if (auto ret = ctl::init(); !ret) {
 		log::fatal("ctl init failed: {}", ret.error().message());
-		std::exit(1);
+		std::exit(1); // NOLINT
 	}
 
 	log::info("startup complete");

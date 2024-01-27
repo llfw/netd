@@ -24,8 +24,6 @@
 #define NETD_DEFS_H_INCLUDED
 
 #ifdef __clang__
-#	define printf_format(fmt, args)                                       \
-		__attribute__((format(printf, fmt, args)))
 #	define nonnull	 _Nonnull
 #	define nullable _Nullable
 #	define newmem	 __attribute__((__malloc__))
