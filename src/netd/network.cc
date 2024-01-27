@@ -40,7 +40,6 @@ module;
 
 #include "generator.hh"
 
-import netd.uuid;
 import netd.util;
 import log;
 

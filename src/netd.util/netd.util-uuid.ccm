@@ -27,7 +27,7 @@ module;
 #include <algorithm>
 #include <functional>
 
-export module netd.uuid;
+export module netd.util:uuid;
 
 export using ::uuid;
 

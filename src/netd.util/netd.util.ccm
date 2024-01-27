@@ -29,3 +29,5 @@ export import :print;
 export import :panic;
 export import :event;
 export import :isam;
+export import :rate;
+export import :uuid;

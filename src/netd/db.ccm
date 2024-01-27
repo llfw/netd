@@ -38,7 +38,7 @@ module;
 #include <string>
 #include <system_error>
 
-import netd.uuid;
+import netd.util;
 
 export module db;
 

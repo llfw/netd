@@ -53,7 +53,7 @@ module;
 #include <type_traits>
 #include <utility>
 
-export module netd.rate;
+export module netd.util:rate;
 
 export namespace netd {
 

@@ -56,8 +56,6 @@ import kq;
 import netlink;
 import task;
 import netd.util;
-import netd.rate;
-import netd.uuid;
 
 module iface;
 

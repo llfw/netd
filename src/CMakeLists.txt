@@ -23,9 +23,7 @@
 
 add_subdirectory(netd.util)
 add_subdirectory(netd.proto)
-add_subdirectory(netd.rate)
 add_subdirectory(netd.nvl)
-add_subdirectory(netd.uuid)
 add_subdirectory(netd.xo)
 add_subdirectory(netd)
 add_subdirectory(netctl)

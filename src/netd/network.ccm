@@ -31,7 +31,6 @@ module;
 #include "defs.hh"
 #include "generator.hh"
 
-import netd.uuid;
 import netd.util;
 
 export module network;

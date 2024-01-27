@@ -24,8 +24,6 @@
 add_executable(netd)
 target_compile_features(netd PUBLIC cxx_std_23)
 target_link_libraries(netd PUBLIC
-	netd.uuid
-	netd.rate
 	netd.nvl
 	netd.proto)
 target_sources(netd PUBLIC

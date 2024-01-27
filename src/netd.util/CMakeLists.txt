@@ -30,8 +30,10 @@ target_sources(netd.util PUBLIC
 	netd.util-event.ccm
 	netd.util-isam.ccm
 	netd.util-guard.ccm
+	netd.util-rate.ccm
 	netd.util-panic.ccm
-	netd.util-print.ccm)
+	netd.util-print.ccm
+	netd.util-uuid.ccm)
 
 set(THIS_DIR $<TARGET_FILE_DIR:netd.util>)
 set_property(GLOBAL APPEND_STRING PROPERTY _LIBTOOLING_EXTRA_ARGS "-fprebuilt-module-path=${THIS_DIR}/CMakeFiles/netd.util.dir ")

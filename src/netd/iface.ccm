@@ -41,7 +41,7 @@ module;
 #include "generator.hh"
 
 import network;
-import netd.rate;
+import netd.util;
 
 export module iface;
 
