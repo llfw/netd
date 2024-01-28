@@ -20,33 +20,32 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/*
+ * the network database.
+ */
+
 module;
 
 #include <sys/uuid.h>
 
-#include <cassert>
-#include <cerrno>
-#include <cstdlib>
-#include <cstring>
-
-#include <algorithm>
+#include <cstdint>
 #include <expected>
-#include <list>
-#include <memory>
-#include <new>
-#include <ranges>
+#include <map>
+#include <string>
 #include <system_error>
-#include <unordered_map>
 
+#include "defs.hh"
 #include "generator.hh"
 
-import netd.util;
-import log;
+export module netd.network:database;
 
-module network;
+import netd.util;
 
 namespace netd::network {
 
+/*
+ * a network.
+ */
 struct network {
 	network(std::string name, uuid id) noexcept
 	try : _name(std::move(name)), _id(id) {
@@ -67,17 +66,35 @@ struct network {
 	uuid	    _id;
 };
 
-isam::isam<network> networks;
+/*
+ * the network database itself.
+ */
 
-isam::index networks_byname(networks,
+inline isam::isam<network> networks;
+
+inline isam::index networks_byname(networks,
 			    [](network const &net) -> std::string_view {
 				    return net._name;
 			    });
 
-isam::index networks_byid(networks, [](network const &net) { return net._id; });
+inline isam::index networks_byid(networks, [](network const &net) { return net._id; });
 
-uint64_t generation = 0;
+inline uint64_t generation = 0;
 
+/*
+ * a handle representing a network.
+ *
+ * the fields of this struct should be considered private.
+ */
+export struct handle {
+	network		     *nh_ptr;
+	uuid		      nh_uuid;
+	mutable std::uint64_t nh_gen;
+};
+
+/*
+ * create a new network.
+ */
 auto add_network(std::string_view name, uuid id) -> network &
 {
 	auto it = networks.emplace(networks.end(), std::string(name), id);
@@ -86,6 +103,9 @@ auto add_network(std::string_view name, uuid id) -> network &
 	return *it;
 }
 
+/*
+ * turn a handle into a network.
+ */
 auto getbyhandle(handle const &h) -> network &
 {
 	if (h.nh_gen == generation)
@@ -100,18 +120,9 @@ auto getbyhandle(handle const &h) -> network &
 	panic("network: bad handle");
 }
 
-auto remove_byid(uuid id) -> bool
-{
-	if (auto it = networks_byid.find(id); it != networks_byid.end()) {
-		auto lit = it->second;
-		networks.erase(lit);
-		++generation;
-		return true;
-	}
-
-	return false;
-}
-
+/*
+ * turn a network into a handle.
+ */
 auto make_handle(network &net) -> handle
 {
 	auto h = handle();
@@ -119,49 +130,6 @@ auto make_handle(network &net) -> handle
 	h.nh_uuid = net._id;
 	h.nh_gen = generation;
 	return h;
-}
-
-auto find(std::string_view name) -> std::expected<handle, std::error_code>
-{
-	if (auto it = networks_byname.find(name); it != networks_byname.end())
-		return make_handle(*it->second);
-	return std::unexpected(error::from_errno(ESRCH));
-}
-
-auto findall() -> std::generator<handle>
-{
-	for (auto &&net: networks)
-		co_yield make_handle(net);
-}
-
-auto info(handle const &network) -> std::expected<netinfo, std::error_code>
-{
-	auto &net = getbyhandle(network);
-	auto  ret = netinfo{};
-	ret.id = net._id;
-	ret.name = net._name;
-	return ret;
-}
-
-auto create(std::string_view name) -> std::expected<handle, std::error_code>
-{
-	if (find(name))
-		return std::unexpected(error::from_errno(EEXIST));
-
-	uuid id{};
-	if (uuidgen(&id, 1) == -1)
-		panic("network: uuidgen: %s", error::strerror());
-
-	auto &net = add_network(name, id);
-	return make_handle(net);
-}
-
-auto remove(handle const &network) -> void
-{
-	auto &net = getbyhandle(network);
-	if (!remove_byid(net._id))
-		panic("network::remove: trying to remove"
-		      " non-existing network");
 }
 
 } // namespace netd::network

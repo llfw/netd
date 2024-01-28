@@ -1,0 +1,137 @@
+/*
+ * This is free and unencumbered software released into the public domain.
+ *
+ * Anyone is free to copy, modify, publish, use, compile, sell, or distribute
+ * this software, either in source code form or as a compiled binary, for any
+ * purpose, commercial or non-commercial, and by any means.
+ *
+ * In jurisdictions that recognize copyright laws, the author or authors of
+ * this software dedicate any and all copyright interest in the software to the
+ * public domain. We make this dedication for the benefit of the public at
+ * large and to the detriment of our heirs and successors. We intend this
+ * dedication to be an overt act of relinquishment in perpetuity of all present
+ * and future rights to this software under copyright law.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+ * AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+
+module;
+
+#include <sys/uuid.h>
+
+#include <cstdint>
+#include <expected>
+#include <map>
+#include <string>
+#include <system_error>
+
+#include "defs.hh"
+#include "generator.hh"
+
+export module netd.network;
+
+import netd.util;
+import :database;
+
+namespace netd::network {
+
+/*
+ * public information about a network.
+ */
+export struct netinfo {
+	uuid		 id{};
+	std::string_view name;
+};
+
+/*
+ * network events.
+ */
+
+// a new network was created
+export inline event::event<netinfo> net_created;
+// an existing network is about to be destroyed
+export inline event::event<netinfo> net_removed;
+// an existing network was changed
+export inline event::event<netinfo> net_changed;
+
+/*
+ * find a network by name.
+ */
+export auto find(std::string_view name) -> std::expected<handle, std::error_code>
+{
+	if (auto it = networks_byname.find(name); it != networks_byname.end())
+		return make_handle(*it->second);
+	return std::unexpected(error::from_errno(ESRCH));
+}
+
+/*
+ * return all networks.
+ */
+export auto findall() -> std::generator<handle>
+{
+	for (auto &&net: networks)
+		co_yield make_handle(net);
+}
+
+/*
+ * fetch a network's config given its handle.
+ */
+
+export auto info(handle const &network) -> std::expected<netinfo, std::error_code>
+{
+	auto &net = getbyhandle(network);
+	auto  ret = netinfo{};
+	ret.id = net._id;
+	ret.name = net._name;
+	return ret;
+}
+
+/*
+ * create a new network.
+ */
+export auto create(std::string_view name) -> std::expected<handle, std::error_code>
+{
+	if (find(name))
+		return std::unexpected(error::from_errno(EEXIST));
+
+	uuid id{};
+	if (uuidgen(&id, 1) == -1)
+		panic("network: uuidgen: %s", error::strerror());
+
+	auto &net = add_network(name, id);
+	return make_handle(net);
+}
+
+/*
+ * remove a netork by uuid.
+ * TODO: not clear if this should be exported.
+ */
+export auto remove_byid(uuid id) -> bool
+{
+	if (auto it = networks_byid.find(id); it != networks_byid.end()) {
+		auto lit = it->second;
+		networks.erase(lit);
+		++generation;
+		return true;
+	}
+
+	return false;
+}
+
+/*
+ * remove a network by handle.
+ */
+export auto remove(handle const &network) -> void
+{
+	auto &net = getbyhandle(network);
+	if (!remove_byid(net._id))
+		panic("network::remove: trying to remove"
+		      " non-existing network");
+}
+
+} // namespace netd::network

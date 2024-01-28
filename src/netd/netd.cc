@@ -32,14 +32,14 @@
 #include <ctime>
 #include <print>
 
-import network;
+import netd.network;
 import ctl;
 import log;
 import kq;
 import iface;
 import netlink;
-import task;
 import netd.util;
+import netd.async;
 
 namespace netd {
 
@@ -74,8 +74,6 @@ auto start() -> jtask<void>
 int main(int argc, char **argv)
 {
 	using namespace netd;
-
-	time(&kq::current_time);
 
 	if (argc != 1) {
 		std::print(stderr, "usage: {}\n", argv[0]);

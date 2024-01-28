@@ -21,33 +21,14 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
-add_executable(netd)
+add_library(netd.async STATIC)
 
-target_compile_features(netd PUBLIC cxx_std_23)
+target_compile_features(netd.async PUBLIC cxx_std_23)
 
-target_link_libraries(netd PUBLIC
-	netd.async
-	netd.nvl
-	netd.proto
-	netd.util)
-
-target_sources(netd PUBLIC
-	netd.cc db.cc
-)
-
-target_sources(netd PUBLIC
+target_sources(netd.async PUBLIC
 	FILE_SET modules TYPE CXX_MODULES FILES
-		netd.network.ccm
-		netd.network-database.ccm
-		ctl.ccm
-		db.ccm
-		iface.ccm
-		kq.ccm
-		log.ccm
-		netlink.ccm
-)
+	netd.async.ccm
+	netd.async-task.ccm)
 
-install(TARGETS netd DESTINATION sbin)
-
-set(THIS_DIR $<TARGET_FILE_DIR:netd>)
-set_property(GLOBAL APPEND_STRING PROPERTY _LIBTOOLING_EXTRA_ARGS "-fprebuilt-module-path=${THIS_DIR}/CMakeFiles/netd.dir ")
+set(THIS_DIR $<TARGET_FILE_DIR:netd.async>)
+set_property(GLOBAL APPEND_STRING PROPERTY _LIBTOOLING_EXTRA_ARGS "-fprebuilt-module-path=${THIS_DIR}/CMakeFiles/netd.async.dir ")

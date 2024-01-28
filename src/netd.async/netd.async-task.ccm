@@ -30,9 +30,7 @@ module;
 #include <functional>
 #include <type_traits>
 
-import log;
-
-export module task;
+export module netd.async:task;
 
 namespace netd {
 
