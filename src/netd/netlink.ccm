@@ -50,7 +50,6 @@ export module netlink;
 
 import netd.util;
 import netd.async;
-import kq;
 import log;
 
 namespace netd::netlink {
@@ -72,7 +71,7 @@ export struct socket {
 	auto operator=(socket &&other) noexcept -> socket &
 	{
 		if (this != &other) {
-			_fd = std::exchange(other._fd, -1);
+			_fdesc = std::move(other._fdesc);
 			std::swap(_buffer, other._buffer);
 			_msgsize = other._msgsize;
 			_pending = other._pending;
@@ -81,11 +80,7 @@ export struct socket {
 		return *this;
 	}
 
-	~socket() noexcept
-	{
-		if (_fd != -1)
-			::close(_fd);
-	}
+	~socket() noexcept = default;
 
 	// create a new netlink socket
 	static auto create(int flags) noexcept
@@ -93,14 +88,16 @@ export struct socket {
 	{
 		socket sock;
 
-		sock._fd = ::socket(AF_NETLINK, SOCK_RAW | flags,
+		auto fd_ = ::socket(AF_NETLINK, SOCK_RAW | flags,
 				    NETLINK_ROUTE);
-		if (sock._fd == -1)
+		if (fd_ == -1)
 			return std::unexpected(error::from_errno());
+
+		sock._fdesc = fd(fd_);
 
 		auto	 optval = 1;
 		unsigned optlen = sizeof(optval);
-		if (setsockopt(sock._fd, SOL_NETLINK, NETLINK_MSG_INFO,
+		if (setsockopt(sock._fdesc.get(), SOL_NETLINK, NETLINK_MSG_INFO,
 			       &optval, optlen) != 0)
 			return std::unexpected(error::from_errno());
 
@@ -141,7 +138,7 @@ export struct socket {
 
 			// read some data and see if it turns into a valid message
 			auto r = co_await kq::read(
-				_fd, std::span(_buffer).subspan(_pending));
+				_fdesc, std::span(_buffer).subspan(_pending));
 
 			if (!r)
 				co_return std::unexpected(error::from_errno());
@@ -156,11 +153,11 @@ export struct socket {
 	// send a message to the socket
 	auto send(nlmsghdr *msg) -> task<std::expected<void, std::error_code>>
 	{
-		log::debug("netlink send: send fd={}", _fd);
+		log::debug("netlink send: send fd={}", _fdesc.get());
 
 		auto bytes = std::span(reinterpret_cast<std::byte const *>(msg),
 				       msg->nlmsg_len);
-		auto nbytes = co_await kq::write(_fd, bytes);
+		auto nbytes = co_await kq::write(_fdesc, bytes);
 		if (!nbytes)
 			co_return std::unexpected(nbytes.error());
 
@@ -175,7 +172,7 @@ export struct socket {
 	{
 		auto optlen = socklen_t(sizeof(group));
 
-		if (setsockopt(_fd, SOL_NETLINK, NETLINK_ADD_MEMBERSHIP,
+		if (setsockopt(_fdesc.get(), SOL_NETLINK, NETLINK_ADD_MEMBERSHIP,
 			       &group, optlen) == -1)
 			co_return std::unexpected(error::from_errno());
 
@@ -190,7 +187,7 @@ private:
 	// the amount of unprocessed data in the buffer
 	std::size_t _pending = 0;
 
-	int _fd = -1;
+	fd _fdesc;
 };
 
 /*

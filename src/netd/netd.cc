@@ -35,7 +35,6 @@
 import netd.network;
 import ctl;
 import log;
-import kq;
 import iface;
 import netlink;
 import netd.util;

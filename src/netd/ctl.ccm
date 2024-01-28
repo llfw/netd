@@ -52,7 +52,6 @@ export module ctl;
 import netd.network;
 import netd.nvl;
 import log;
-import kq;
 import iface;
 import netd.async;
 import netd.util;
@@ -61,20 +60,18 @@ import netd.proto;
 namespace netd::ctl {
 
 struct ctlclient {
-	ctlclient(int fd_) : fd(fd_) {}
+	ctlclient(fd &&fdesc) noexcept : _fdesc(std::move(fdesc)) {}
 
 	ctlclient(ctlclient const &) = delete;
-	ctlclient(ctlclient &&) = default;
-	~ctlclient()
-	{
-		::close(fd);
-	}
+	ctlclient(ctlclient &&) noexcept = default;
 
 	auto operator=(ctlclient const &) = delete;
-	auto operator=(ctlclient &&) -> ctlclient & = default;
+	auto operator=(ctlclient &&) noexcept -> ctlclient & = default;
 
-	int					   fd;
+	// TODO: make provider
 	std::array<std::byte, proto::max_msg_size> buf = {};
+
+	fd _fdesc;
 };
 
 using cmdhandler = std::function<task<void>(ctlclient &, nvl const &)>;
@@ -99,7 +96,7 @@ using cmdhandler = std::function<task<void>(ctlclient &, nvl const &)>;
 [[nodiscard]] auto h_net_list(ctlclient &client, nvl const &request)
 	-> task<void>;
 
-[[nodiscard]] auto listener(int fd) -> jtask<void>;
+[[nodiscard]] auto listener(fd &&sfd) -> jtask<void>;
 [[nodiscard]] auto client_handler(std::unique_ptr<ctlclient>) -> jtask<void>;
 [[nodiscard]] auto clientcmd(ctlclient &, nvl const &cmd) -> task<void>;
 
@@ -118,43 +115,45 @@ export auto init() -> std::expected<void, std::error_code>
 			   SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
 
 	if (sock == -1) {
-		log::fatal("ctl::init: socket: {}", std::strerror(errno));
+		log::fatal("ctl::init: socket: {}", error::strerror());
 		return std::unexpected(error::from_errno());
 	}
+
+	fd fdesc(sock);
 
 	memset(&sun, 0, sizeof(sun));
 	sun.sun_family = AF_UNIX;
 	assert(proto::socket_path.size() < sizeof(sun.sun_path));
 	std::ranges::copy(proto::socket_path, &sun.sun_path[0]);
 
-	if (bind(sock, (struct sockaddr *)&sun, (socklen_t)SUN_LEN(&sun))
+	if (bind(fdesc.get(), (struct sockaddr *)&sun, (socklen_t)SUN_LEN(&sun))
 	    == -1) {
-		log::fatal("ctl::init: bind: {}", strerror(errno));
+		log::fatal("ctl::init: bind: {}", error::strerror());
 		return std::unexpected(error::from_errno());
 	}
 
-	if (listen(sock, 128) == -1) {
-		log::fatal("ctl::init: listen: {}", strerror(errno));
+	if (listen(fdesc.get(), 128) == -1) {
+		log::fatal("ctl::init: listen: {}", error::strerror());
 		return std::unexpected(error::from_errno());
 	}
 
-	kq::run_task(listener(sock));
+	kq::run_task(listener(std::move(fdesc)));
 	log::debug("ctl::init: listening on {}", path);
 	return {};
 }
 
-auto listener(int sfd) -> jtask<void>
+auto listener(fd &&sfd) -> jtask<void>
 {
+	fd sfd_ = std::move(sfd);
+
 	for (;;) {
-		auto fd = co_await kq::accept4(sfd, nullptr, nullptr,
+		auto fdesc = co_await kq::accept4(sfd_, nullptr, nullptr,
 					       SOCK_NONBLOCK | SOCK_CLOEXEC);
-		if (!fd)
+		if (!fdesc)
 			panic("ctl::listener: accept failed: {}",
-			      fd.error().message());
+			      fdesc.error().message());
 
-		auto client = std::make_unique<ctlclient>(*fd);
-		log::debug("acceptclient: new client fd={}", client->fd);
-
+		auto client = std::make_unique<ctlclient>(std::move(*fdesc));
 		kq::run_task(client_handler(std::move(client)));
 	}
 
@@ -166,40 +165,28 @@ auto listener(int sfd) -> jtask<void>
  */
 auto client_handler(std::unique_ptr<ctlclient> client) -> jtask<void>
 {
-	log::debug("client_handler: starting, fd={}", client->fd);
-
 	/* read the command */
-	auto nbytes = co_await kq::recvmsg(client->fd, client->buf);
+	auto nbytes = co_await kq::recvmsg(client->_fdesc, client->buf);
 	if (!nbytes) {
-		log::warning("client read error: {}", nbytes.error().message());
+		log::error("client read error: {}", nbytes.error().message());
 		co_return;
 	}
 
-	if (!*nbytes) {
-		log::warning("client disconnected");
+	if (!*nbytes)
+		// client disconnected
 		co_return;
-	}
-
-	log::debug("client_handler: msg size={}", *nbytes);
 
 	auto msgbytes = std::span(client->buf).subspan(0, *nbytes);
 
 	auto cmd = nvl::unpack(msgbytes, 0);
-	if (!cmd) {
-		log::debug("readclient: nvl::unpack: {}",
-			   cmd.error().message());
+	if (!cmd)
 		co_return;
-	}
 
 	// TODO: is this check necessary?
-	if (auto error = cmd->error(); error) {
-		log::debug("readclient: nvlist error: {}", error->message());
+	if (auto error = cmd->error(); error)
 		co_return;
-	}
 
 	co_await clientcmd(*client, *cmd);
-
-	log::debug("client_handler: done");
 	co_return;
 }
 
@@ -264,9 +251,9 @@ auto send_response(ctlclient &client, nvl const &resp) -> task<void>
 	mhdr.msg_iovlen = 1;
 
 	/* TODO: assume this won't block for now */
-	n = ::sendmsg(client.fd, &mhdr, MSG_EOR);
+	n = ::sendmsg(client._fdesc.get(), &mhdr, MSG_EOR);
 	if (n == -1)
-		log::debug("send_response: sendmsg: {}", strerror(errno));
+		log::debug("send_response: sendmsg: {}", error::strerror());
 	co_return;
 }
 

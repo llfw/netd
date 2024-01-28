@@ -28,4 +28,8 @@ module;
 
 export module netd.async;
 
+// TODO: split 'kq' into kqueue-specific and platform-agnostic parts.
+
 export import :task;
+export import :fd;
+export import :kq;

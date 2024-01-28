@@ -55,7 +55,6 @@ module;
 export module iface;
 
 import log;
-import kq;
 import netlink;
 import netd.util;
 import netd.async;

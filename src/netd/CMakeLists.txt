@@ -42,7 +42,6 @@ target_sources(netd PUBLIC
 		ctl.ccm
 		db.ccm
 		iface.ccm
-		kq.ccm
 		log.ccm
 		netlink.ccm
 )

@@ -41,17 +41,17 @@ module;
 
 #include "defs.hh"
 
-export module kq;
+export module netd.async:kq;
 
-import log;
 import netd.util;
-import netd.async;
+import :task;
+import :fd;
 
 namespace netd::kq {
 
 /* kq represents a kqueue instance */
 struct kqueue {
-	int kq_fd = 0;
+	fd kq_fd;
 };
 
 /* the global instance */
@@ -92,9 +92,11 @@ auto runjobs() noexcept -> void
  */
 export auto init() noexcept -> std::expected<void, std::error_code>
 {
-	kq.kq_fd = ::kqueuex(KQUEUE_CLOEXEC);
-	if (kq.kq_fd == -1)
+	int fd_ = ::kqueuex(KQUEUE_CLOEXEC);
+	if (fd_ == -1)
 		return std::unexpected(error::from_errno());
+
+	kq.kq_fd = fd(fd_);
 
 	return {};
 }
@@ -115,14 +117,12 @@ export auto run() noexcept -> std::expected<void, std::error_code>
 		});
 	};
 
-	log::info("running");
-
 	// run any jobs that were added before we started
 	runjobs();
 
 	struct kevent ev {};
 	auto	      n = int{};
-	while ((n = kevent(kq.kq_fd, NULL, 0, &ev, 1, NULL)) != -1) {
+	while ((n = kevent(kq.kq_fd.get(), NULL, 0, &ev, 1, NULL)) != -1) {
 		if (n > 0) {
 			if (ev.ext[2] == 0)
 				panic("kq_dispatch_event: unexpected event");
@@ -133,7 +133,7 @@ export auto run() noexcept -> std::expected<void, std::error_code>
 		runjobs();
 	}
 
-	log::fatal("kqrun: kqueue failed: {}", error::strerror(errno));
+	panic("kqrun: kqueue failed: {}", error::strerror());
 	return std::unexpected(error::from_errno());
 }
 
@@ -165,7 +165,7 @@ struct wait_kevent {
 		ev->ext[2] = reinterpret_cast<uintptr_t>(ev);
 		ev->ext[3] = reinterpret_cast<uintptr_t>(coro.address());
 
-		if (kevent(kq.kq_fd, ev, 1, nullptr, 0, nullptr) == -1)
+		if (kevent(kq.kq_fd.get(), ev, 1, nullptr, 0, nullptr) == -1)
 			panic("wait_kevent: kevent() failed: {}",
 			      error::strerror());
 
@@ -239,11 +239,11 @@ auto sleep_until(std::chrono::time_point<std::chrono::system_clock> when)
 /*
  * wait for this fd to become readable.
  */
-auto wait_readable(int fd) -> task<void>
+auto wait_readable(fd &fdesc) -> task<void>
 {
 	struct kevent ev {};
 
-	ev.ident = (uintptr_t)fd;
+	ev.ident = (uintptr_t)fdesc.get();
 	ev.filter = EVFILT_READ;
 	ev.flags = EV_ADD | EV_ENABLE | EV_ONESHOT;
 
@@ -253,11 +253,11 @@ auto wait_readable(int fd) -> task<void>
 /*
  * wait for this fd to become writable.
  */
-auto wait_writable(int fd) -> task<void>
+auto wait_writable(fd &fdesc) -> task<void>
 {
 	struct kevent ev {};
 
-	ev.ident = (uintptr_t)fd;
+	ev.ident = (uintptr_t)fdesc.get();
 	ev.filter = EVFILT_WRITE;
 	ev.flags = EV_ADD | EV_ENABLE | EV_ONESHOT;
 
@@ -267,15 +267,14 @@ auto wait_writable(int fd) -> task<void>
 /*
  * read data into the provided buffer.
  */
-export auto read(int fd, std::span<std::byte> buf)
+export auto read(fd &fdesc, std::span<std::byte> buf)
 	-> task<std::expected<std::size_t, std::error_code>>
 {
-	assert(fd >= 0);
 	assert(buf.size() > 0);
 
 	// keep trying the read until we get some data, or an error
 	for (;;) {
-		auto n = ::read(fd, buf.data(), buf.size());
+		auto n = ::read(fdesc.get(), buf.data(), buf.size());
 
 		if (n >= 0)
 			co_return n;
@@ -283,21 +282,20 @@ export auto read(int fd, std::span<std::byte> buf)
 		if (errno != EAGAIN)
 			co_return std::unexpected(error::from_errno());
 
-		co_await wait_readable(fd);
+		co_await wait_readable(fdesc);
 	}
 }
 
 /*
  * write data from the provided buffer.
  */
-export auto write(int fd, std::span<std::byte const> buf)
+export auto write(fd &fdesc, std::span<std::byte const> buf)
 	-> task<std::expected<std::size_t, std::error_code>>
 {
-	assert(fd >= 0);
 	assert(!buf.empty());
 
 	for (;;) {
-		auto n = ::write(fd, buf.data(), buf.size());
+		auto n = ::write(fdesc.get(), buf.data(), buf.size());
 
 		if (n >= 0)
 			co_return n;
@@ -305,7 +303,7 @@ export auto write(int fd, std::span<std::byte const> buf)
 		if (errno != EAGAIN)
 			co_return std::unexpected(error::from_errno());
 
-		co_await wait_writable(fd);
+		co_await wait_writable(fdesc);
 	}
 }
 
@@ -316,7 +314,7 @@ export auto write(int fd, std::span<std::byte const> buf)
  * returns the size of the message read, or error.  if the buffer is too small
  * to hold the message, the message is discarded and ENOSPC is returned.
  */
-export [[nodiscard]] auto recvmsg(int fd, std::span<std::byte> buf)
+export [[nodiscard]] auto recvmsg(fd &fdesc, std::span<std::byte> buf)
 	-> task<std::expected<std::size_t, std::error_code>>
 {
 	// the remaining buffer we can read into
@@ -330,7 +328,7 @@ export [[nodiscard]] auto recvmsg(int fd, std::span<std::byte> buf)
 		msg->msg_iovlen = 1;
 
 		// wait for some data to arrive
-		auto n = ::recvmsg(fd, msg, 0);
+		auto n = ::recvmsg(fdesc.get(), msg, 0);
 		return n;
 	};
 
@@ -351,7 +349,7 @@ export [[nodiscard]] auto recvmsg(int fd, std::span<std::byte> buf)
 			if (errno != EAGAIN)
 				co_return std::unexpected(error::from_errno());
 
-			co_await wait_readable(fd);
+			co_await wait_readable(fdesc);
 			break;
 
 		default:
@@ -373,15 +371,15 @@ export [[nodiscard]] auto recvmsg(int fd, std::span<std::byte> buf)
  * described in accept4(2).
  */
 export [[nodiscard]] auto
-accept4(int server_fd, sockaddr *addr, socklen_t *addrlen, int flags)
-	-> task<std::expected<int, std::error_code>>
+accept4(fd &server_fd, sockaddr *addr, socklen_t *addrlen, int flags)
+	-> task<std::expected<fd, std::error_code>>
 {
 	for (;;) {
 		// try accepting forever until we get an error, or succeed.
-		auto newfd = ::accept4(server_fd, addr, addrlen, flags);
+		auto newfd = ::accept4(server_fd.get(), addr, addrlen, flags);
 
 		if (newfd >= 0)
-			co_return newfd;
+			co_return fd(newfd);
 
 		if (errno != EAGAIN)
 			co_return std::unexpected(error::from_errno());

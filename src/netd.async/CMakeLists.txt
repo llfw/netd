@@ -23,12 +23,16 @@
 
 add_library(netd.async STATIC)
 
+target_link_libraries(netd.async PUBLIC netd.util)
+
 target_compile_features(netd.async PUBLIC cxx_std_23)
 
 target_sources(netd.async PUBLIC
 	FILE_SET modules TYPE CXX_MODULES FILES
 	netd.async.ccm
-	netd.async-task.ccm)
+	netd.async-task.ccm
+	netd.async-fd.ccm
+	netd.async-kq.ccm)
 
 set(THIS_DIR $<TARGET_FILE_DIR:netd.async>)
 set_property(GLOBAL APPEND_STRING PROPERTY _LIBTOOLING_EXTRA_ARGS "-fprebuilt-module-path=${THIS_DIR}/CMakeFiles/netd.async.dir ")
